@@ -42,6 +42,9 @@ window.onload = async () => {
     penRender(app.width, app.height)
   }
 
+  input.value = await fetch("example").then((e) => e.text())
+  input.oninput()
+
   window.onresize = () => {
     app.width = window.innerWidth * 0.6
     app.height = window.innerHeight - errorSpace
