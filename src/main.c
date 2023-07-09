@@ -23,7 +23,8 @@ int main(int argc, char **argv) {
   }
   char *file_path = argv[1];
 
-  InitWindow(WIDTH, HEIGHT, "Pen");
+  SetConfigFlags(FLAG_WINDOW_RESIZABLE);
+  InitWindow(800, 600, "Pen");
 
   char *data = LoadFileText(file_path);
   if (data) {
@@ -33,7 +34,7 @@ int main(int argc, char **argv) {
 
   while (!WindowShouldClose()) {
     BeginDrawing();
-    penRender();
+    penRender(GetScreenWidth(), GetScreenHeight());
     EndDrawing();
 
     if (IsKeyPressed(KEY_R)) {

@@ -202,9 +202,9 @@ int programPush(Op op) {
 }
 
 int programEval(void) {
-  float a = 0.0;
-  float x = WIDTH / 2.0;
-  float y = HEIGHT / 2.0;
+  float a = 0;
+  float x = 0;
+  float y = 0;
 
   canvasCount = 0;
   canvasPush(x, y);
@@ -276,6 +276,7 @@ int programRead(Str s) {
       bufferPushStr(STR("' in line "));
       bufferPushInt(row);
       platformError(bufferFinish());
+      programCount = 0;
       return 0;
     }
 
@@ -287,10 +288,12 @@ int programRead(Str s) {
       bufferPushStr(STR("' in line "));
       bufferPushInt(row);
       platformError(bufferFinish());
+      programCount = 0;
       return 0;
     }
 
     if (!programPush(op)) {
+      programCount = 0;
       return 0;
     }
   }
@@ -299,17 +302,20 @@ int programRead(Str s) {
 }
 
 // Exports
+void penRender(int w, int h) {
+  w /= 2;
+  h /= 2;
+
+  platformClear();
+  for (int i = 1; i < canvasCount; i++) {
+    platformDrawLine(w + canvasXs[i - 1], h + canvasYs[i - 1], w + canvasXs[i], h + canvasYs[i]);
+  }
+}
+
 void penUpdate(char *data, int size) {
   if (programRead((Str){data, size})) {
     programEval();
   } else {
     canvasCount = 0;
-  }
-}
-
-void penRender(void) {
-  platformClear();
-  for (int i = 1; i < canvasCount; i++) {
-    platformDrawLine(canvasXs[i - 1], canvasYs[i - 1], canvasXs[i], canvasYs[i]);
   }
 }

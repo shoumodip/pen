@@ -2,10 +2,11 @@ window.onload = async () => {
   const app = document.getElementById("app")
   const ctx = app.getContext("2d")
 
-  const log = document.getElementById("log")
-
   const input = document.getElementById("input")
   const style = window.getComputedStyle(input)
+
+  const error = document.getElementById("error")
+  const errorSpace = Number(style.fontSize.slice(0, -2)) * 3.3
 
   const wasm = await WebAssembly.instantiateStreaming(fetch("web/pen.wasm"), {
     env: {
@@ -17,7 +18,7 @@ window.onload = async () => {
       platformError: (ptr) => {
         const length = new Uint8Array(memory.buffer, ptr).indexOf(0)
         const source = new Uint8Array(memory.buffer, ptr, length)
-        log.value = "Error: " + new TextDecoder().decode(source)
+        error.value = "Error: " + new TextDecoder().decode(source)
       },
 
       platformDrawLine: (x1, y1, x2, y2) => {
@@ -30,17 +31,23 @@ window.onload = async () => {
     }
   })
 
-  const { memory, penUpdate, penRender } = wasm.instance.exports
+  const { memory, penRender, penUpdate } = wasm.instance.exports
 
   input.oninput = () => {
     const array = new Uint8Array(memory.buffer, 0, input.value.length)
     array.set(new TextEncoder().encode(input.value))
 
-    log.value = ""
+    error.value = ""
     penUpdate(array.byteOffset, array.length)
-    penRender()
+    penRender(app.width, app.height)
   }
 
-  penRender()
+  window.onresize = () => {
+    app.width = window.innerWidth * 0.6
+    app.height = window.innerHeight - errorSpace
+    penRender(app.width, app.height)
+  }
+
+  window.onresize()
   new MutationObserver(penRender).observe(document.querySelector("head"), { childList: true })
 }
