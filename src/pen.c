@@ -87,6 +87,10 @@ Str strSplit(Str *s, char ch) {
 }
 
 int strParseInt(Str s, int *out) {
+  if (!s.count) {
+    return 0;
+  }
+
   *out = 0;
 
   for (int i = 0; i < s.count; i++) {
@@ -247,36 +251,35 @@ int programRead(Str s) {
     [OP_BACKWARD] = STR("backward"),
   };
 
-  int ok = 1;
   for (int row = 1; s.count; row++) {
     Str line = strTrim(strSplit(&s, '\n'), ' ');
     if (!line.count) {
       continue;
     }
-    Str word = strTrim(strSplit(&line, ' '), ' ');
 
     Op op;
-    int valid = 0;
+    int ok = 0;
+    Str word = strTrim(strSplit(&line, ' '), ' ');
+
     for (int i = 0; i < sizeof(words) / sizeof(*words); i++) {
       if (strEq(word, words[i])) {
-        valid = 1;
+        ok = 1;
         op.type = i;
         break;
       }
     }
 
-    if (!valid) {
+    if (!ok) {
       bufferCount = 0;
       bufferPushStr(STR("Invalid word '"));
       bufferPushStr(word);
       bufferPushStr(STR("' in line "));
       bufferPushInt(row);
       platformError(bufferFinish());
-      ok = 0;
+      return 0;
     }
 
     word = strTrim(line, ' ');
-
     if (!strParseInt(word, &op.data)) {
       bufferCount = 0;
       bufferPushStr(STR("Invalid count '"));
@@ -284,19 +287,15 @@ int programRead(Str s) {
       bufferPushStr(STR("' in line "));
       bufferPushInt(row);
       platformError(bufferFinish());
-      ok = 0;
+      return 0;
     }
 
-    if (ok && !programPush(op)) {
+    if (!programPush(op)) {
       return 0;
     }
   }
 
-  if (!ok) {
-    programCount = 0;
-  }
-
-  return ok;
+  return 1;
 }
 
 // Exports
@@ -309,8 +308,8 @@ void penUpdate(char *data, int size) {
 }
 
 void penRender(void) {
-  platformClear(0xFFFFFFFF);
+  platformClear();
   for (int i = 1; i < canvasCount; i++) {
-    platformDrawLine(canvasXs[i - 1], canvasYs[i - 1], canvasXs[i], canvasYs[i], 0x000000FF);
+    platformDrawLine(canvasXs[i - 1], canvasYs[i - 1], canvasXs[i], canvasYs[i]);
   }
 }

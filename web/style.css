@@ -1,0 +1,38 @@
+* {
+  font-size: 1.2rem;
+}
+
+div {
+  gap: 0.45rem;
+  width: 100%;
+  display: flex;
+}
+
+body {
+  gap: 0.45rem;
+  padding: 0;
+  display: flex;
+  overflow: hidden;
+  flex-direction: column;
+}
+
+input {
+  width: 100%;
+  margin: 0;
+  border: none;
+  padding: 0.5rem 0.5rem;
+  font-family: monospace;
+  background-color: #FF000066;
+}
+
+canvas {
+  border: 1px solid grey;
+}
+
+textarea {
+  width: 100%;
+  margin: 0;
+  resize: none;
+  border: 1px solid grey;
+  outline: none;
+}

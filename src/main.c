@@ -3,25 +3,16 @@
 #include <stdio.h>
 #include <string.h>
 
-Color colorFromHex(Hex color) {
-  return (Color){
-    (color >> (3 * 8)) & 0xFF,
-    (color >> (2 * 8)) & 0xFF,
-    (color >> (1 * 8)) & 0xFF,
-    (color >> (0 * 8)) & 0xFF,
-  };
-}
-
-void platformClear(Hex color) {
-  ClearBackground(colorFromHex(color));
+void platformClear(void) {
+  ClearBackground(RAYWHITE);
 }
 
 void platformError(char *data) {
   TraceLog(LOG_WARNING, "%s", data);
 }
 
-void platformDrawLine(int x1, int y1, int x2, int y2, Hex color) {
-  DrawLine(x1, y1, x2, y2, colorFromHex(color));
+void platformDrawLine(int x1, int y1, int x2, int y2) {
+  DrawLine(x1, y1, x2, y2, BLACK);
 }
 
 int main(int argc, char **argv) {
