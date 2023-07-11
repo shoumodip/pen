@@ -7,8 +7,16 @@ void platformClear(void) {
   ClearBackground(RAYWHITE);
 }
 
-void platformError(char *data) {
-  TraceLog(LOG_WARNING, "%s", data);
+void platformErrorStart(void) {
+  fprintf(stderr, "ERROR: ");
+}
+
+void platformErrorPush(char *data, int count) {
+  fwrite(data, count, 1, stderr);
+}
+
+void platformErrorEnd(void) {
+  fputc('\n', stderr);
 }
 
 void platformDrawLine(int x1, int y1, int x2, int y2) {

@@ -1,10 +1,10 @@
 # Pen
-Simple Geometry Visualizer
+Programmable Pen
 
 ## Quick Start
 [Web Version](https://shoumodip.github.io/pen/)
 
 ```console
 $ ./build.sh
-$ ./pen
+$ ./pen example
 ```

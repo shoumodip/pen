@@ -1,9 +1,11 @@
-forward 50
-left    72
-forward 50
-left    72
-forward 50
-left    72
-forward 50
-left    72
-forward 50
+fn shape(n, l) {
+  i = 0
+  x = 360 / n
+  while i < n {
+    move(l)
+    rotate(x)
+    i = i + 1
+  }
+}
+
+shape(6, 50)

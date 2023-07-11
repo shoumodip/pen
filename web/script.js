@@ -15,11 +15,15 @@ window.onload = async () => {
         ctx.fillRect(0, 0, app.width, app.height)
       },
 
-      platformError: (ptr) => {
-        const length = new Uint8Array(memory.buffer, ptr).indexOf(0)
-        const source = new Uint8Array(memory.buffer, ptr, length)
-        error.value = "Error: " + new TextDecoder().decode(source)
+      platformErrorStart: () => {
+        error.value = "Error: "
       },
+
+      platformErrorPush: (start, count) => {
+        error.value += new TextDecoder().decode(new Uint8Array(memory.buffer, start, count))
+      },
+
+      platformErrorEnd: () => { },
 
       platformDrawLine: (x1, y1, x2, y2) => {
         ctx.beginPath()
@@ -52,5 +56,7 @@ window.onload = async () => {
   }
 
   window.onresize()
-  new MutationObserver(penRender).observe(document.querySelector("head"), { childList: true })
+
+  new MutationObserver(() => penRender(app.width, app.height))
+    .observe(document.querySelector("head"), { childList: true })
 }
