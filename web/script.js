@@ -2,6 +2,7 @@ window.onload = async () => {
   const app = document.getElementById("app")
   const ctx = app.getContext("2d")
 
+  const run = document.getElementById("run")
   const input = document.getElementById("input")
   const style = window.getComputedStyle(input)
 
@@ -16,6 +17,7 @@ window.onload = async () => {
       },
 
       platformErrorStart: () => {
+        error.style.backgroundColor = "#FF000066"
         error.value = "Error: "
       },
 
@@ -37,17 +39,19 @@ window.onload = async () => {
 
   const { memory, penRender, penUpdate } = wasm.instance.exports
 
-  input.oninput = () => {
+  run.onclick = () => {
     const array = new Uint8Array(memory.buffer, 0, input.value.length)
     array.set(new TextEncoder().encode(input.value))
 
     error.value = ""
+    error.style.backgroundColor = "#00FF0066"
+
     penUpdate(array.byteOffset, array.length)
     penRender(app.width, app.height)
   }
 
   input.value = await fetch("example").then((e) => e.text())
-  input.oninput()
+  run.onclick()
 
   window.onresize = () => {
     app.width = window.innerWidth * 0.6
