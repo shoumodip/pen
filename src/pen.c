@@ -832,7 +832,6 @@ int programEval(void) {
       break;
 
     case OP_CALL:
-
       stackCount += functionsBody[op.data] - functionsArity[functions.count - 1];
       if (stackCount > STACK_CAP) {
         return 0;
@@ -1345,6 +1344,7 @@ int compileStmt(void) {
       return 0;
     }
 
+    functionsArity[functions.count - 1] = 0;
     while (1) {
       if (!lexerPeek(&token)) {
         return 0;
@@ -1466,12 +1466,6 @@ void penRender(int w, int h) {
 void penUpdate(char *data, int size) {
   canvasCount = 0;
   programCount = 0;
-
-  for (int i = 0; i < SCOPE_CAP; i++) {
-    functionsBody[i] = 0;
-    functionsArity[i] = 0;
-    variables.data[i] = 0;
-  }
 
   functions.count = 0;
   variables.count = 0;
