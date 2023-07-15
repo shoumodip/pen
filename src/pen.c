@@ -108,21 +108,27 @@ Str strFromInt(int n, char *buffer) {
   return (Str){buffer, size};
 }
 
-int strParseInt(Str s, int *out) {
+int strParseFloat(Str s, float *out) {
   if (!s.count) {
     return 0;
   }
 
-  *out = 0;
+  int a = 0;
+  int b = 0;
+  int c = 1;
+  int *d = &a;
 
   for (int i = 0; i < s.count; i++) {
-    char ch = s.data[i];
-    if (ch < '0' || ch > '9') {
-      return 0;
+    if (s.data[i] == '.') {
+      c = 1;
+      d = &b;
+    } else {
+      c *= 10;
+      *d = *d * 10 + s.data[i] - '0';
     }
-    *out = *out * 10 + ch - '0';
   }
 
+  *out = a + (float)b / c;
   return 1;
 }
 
@@ -416,6 +422,13 @@ int lexerNext(Token *token) {
         lexerRead();
       }
 
+      if (lexer.str.count && *lexer.str.data == '.') {
+        lexerRead();
+        while (lexer.str.count && isdigit(*lexer.str.data)) {
+          lexerRead();
+        }
+      }
+
       token->type = TOKEN_NUM;
     } else if (isident(*lexer.str.data)) {
       while (lexer.str.count && isident(*lexer.str.data)) {
@@ -500,6 +513,14 @@ int lexerExpectPeek(TokenType type) {
 }
 
 // Op
+typedef union {
+  int i;
+  float f;
+} Value;
+
+#define VALUE_INT(n) ((Value){.i = n})
+#define VALUE_FLOAT(n) ((Value){.f = n})
+
 typedef enum {
   OP_NUM,
 
@@ -535,7 +556,7 @@ typedef enum {
 
 typedef struct {
   OpType type;
-  int data;
+  Value data;
 } Op;
 
 // Canvas
@@ -559,10 +580,10 @@ int canvasPush(int x, int y) {
 
 // Stack
 #define STACK_CAP 1024
-int stackData[STACK_CAP];
+Value stackData[STACK_CAP];
 int stackCount;
 
-int stackPop(int *out) {
+int stackPop(Value *out) {
   if (!stackCount) {
     return 0;
   }
@@ -571,7 +592,7 @@ int stackPop(int *out) {
   return 1;
 }
 
-int stackPush(int value) {
+int stackPush(Value value) {
   if (stackCount >= STACK_CAP) {
     Str errors[] = {STR("Stack overflow")};
     logError(errors, sizeof(errors) / sizeof(*errors));
@@ -585,7 +606,7 @@ int stackPush(int value) {
 // Scope
 #define SCOPE_CAP 1024
 typedef struct {
-  int data[SCOPE_CAP];
+  Value data[SCOPE_CAP];
   Str names[SCOPE_CAP];
   int count;
 } Scope;
@@ -625,7 +646,7 @@ Scope variables;
 Op programOps[PROGRAM_CAP];
 int programCount;
 
-int programPush(OpType type, int data) {
+int programPush(OpType type, Value data) {
   if (programCount >= PROGRAM_CAP) {
     Str errors[] = {STR("Program overflow")};
     logError(errors, sizeof(errors) / sizeof(*errors));
@@ -636,9 +657,35 @@ int programPush(OpType type, int data) {
   return 1;
 }
 
+#define UNARY_OP(op)                                                                               \
+  do {                                                                                             \
+    if (!stackPop(&lhs)) {                                                                         \
+      return 0;                                                                                    \
+    }                                                                                              \
+                                                                                                   \
+    if (!stackPush(VALUE_FLOAT(op(lhs.f)))) {                                                      \
+      return 0;                                                                                    \
+    }                                                                                              \
+  } while (0)
+
+#define BINARY_OP(op)                                                                              \
+  do {                                                                                             \
+    if (!stackPop(&rhs)) {                                                                         \
+      return 0;                                                                                    \
+    }                                                                                              \
+                                                                                                   \
+    if (!stackPop(&lhs)) {                                                                         \
+      return 0;                                                                                    \
+    }                                                                                              \
+                                                                                                   \
+    if (!stackPush(VALUE_FLOAT(lhs.f op rhs.f))) {                                                 \
+      return 0;                                                                                    \
+    }                                                                                              \
+  } while (0)
+
 int programEval(void) {
-  int lhs = 0;
-  int rhs = 0;
+  Value lhs;
+  Value rhs;
   int rbp = 0;
 
   float a = 0;
@@ -658,163 +705,51 @@ int programEval(void) {
       break;
 
     case OP_GT:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs > rhs)) {
-        return 0;
-      }
+      BINARY_OP(>);
       break;
 
     case OP_GE:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs >= rhs)) {
-        return 0;
-      }
+      BINARY_OP(>=);
       break;
 
     case OP_LT:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs < rhs)) {
-        return 0;
-      }
+      BINARY_OP(<);
       break;
 
     case OP_LE:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs <= rhs)) {
-        return 0;
-      }
+      BINARY_OP(<=);
       break;
 
     case OP_EQ:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs == rhs)) {
-        return 0;
-      }
+      BINARY_OP(==);
       break;
 
     case OP_NE:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs != rhs)) {
-        return 0;
-      }
+      BINARY_OP(!=);
       break;
 
     case OP_ADD:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs + rhs)) {
-        return 0;
-      }
+      BINARY_OP(+);
       break;
 
     case OP_SUB:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs - rhs)) {
-        return 0;
-      }
+      BINARY_OP(-);
       break;
 
     case OP_MUL:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs * rhs)) {
-        return 0;
-      }
+      BINARY_OP(*);
       break;
 
     case OP_DIV:
-      if (!stackPop(&rhs)) {
-        return 0;
-      }
-
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(lhs / rhs)) {
-        return 0;
-      }
+      BINARY_OP(/);
       break;
 
     case OP_NOT:
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(!lhs)) {
-        return 0;
-      }
+      UNARY_OP(!);
       break;
 
     case OP_NEG:
-      if (!stackPop(&lhs)) {
-        return 0;
-      }
-
-      if (!stackPush(-lhs)) {
-        return 0;
-      }
+      UNARY_OP(-);
       break;
 
     case OP_ELSE:
@@ -822,31 +757,31 @@ int programEval(void) {
         return 0;
       }
 
-      if (!lhs) {
-        i = op.data - 1;
+      if (!lhs.f) {
+        i = op.data.i - 1;
       }
       break;
 
     case OP_GOTO:
-      i = op.data - 1;
+      i = op.data.i - 1;
       break;
 
     case OP_CALL:
-      stackCount += functionsBody[op.data] - functionsArity[functions.count - 1];
+      stackCount += functionsBody[op.data.i] - functionsArity[op.data.i];
       if (stackCount > STACK_CAP) {
         return 0;
       }
 
-      if (!stackPush(i)) {
+      if (!stackPush(VALUE_INT(i))) {
         return 0;
       }
 
-      if (!stackPush(rbp)) {
+      if (!stackPush(VALUE_INT(rbp))) {
         return 0;
       }
 
-      rbp = stackCount - functionsBody[op.data] - 2;
-      i = functions.data[op.data] - 1;
+      rbp = stackCount - functionsBody[op.data.i] - 2;
+      i = functions.data[op.data.i].i - 1;
       break;
 
     case OP_RETURN:
@@ -854,15 +789,17 @@ int programEval(void) {
         return 0;
       }
 
-      if (!stackPop(&rbp)) {
+      if (!stackPop(&rhs)) {
         return 0;
       }
+      rbp = rhs.i;
 
-      if (!stackPop(&i)) {
+      if (!stackPop(&rhs)) {
         return 0;
       }
+      i = rhs.i;
 
-      stackCount -= functionsBody[op.data];
+      stackCount -= functionsBody[op.data.i];
       if (stackCount < 0) {
         return 0;
       }
@@ -879,7 +816,7 @@ int programEval(void) {
       break;
 
     case OP_GETG:
-      if (!stackPush(variables.data[op.data])) {
+      if (!stackPush(variables.data[op.data.i])) {
         return 0;
       }
       break;
@@ -889,11 +826,11 @@ int programEval(void) {
         return 0;
       }
 
-      variables.data[op.data] = lhs;
+      variables.data[op.data.i] = lhs;
       break;
 
     case OP_GETL:
-      if (!stackPush(stackData[rbp + op.data])) {
+      if (!stackPush(stackData[rbp + op.data.i])) {
         return 0;
       }
       break;
@@ -903,7 +840,7 @@ int programEval(void) {
         return 0;
       }
 
-      stackData[rbp + op.data] = lhs;
+      stackData[rbp + op.data.i] = lhs;
       break;
 
     case OP_MOVE:
@@ -911,8 +848,8 @@ int programEval(void) {
         return 0;
       }
 
-      x += lhs * cosf(a);
-      y += lhs * sinf(a);
+      x += lhs.f * cosf(a);
+      y += lhs.f * sinf(a);
       if (!canvasPush(x, y)) {
         return 0;
       }
@@ -923,7 +860,7 @@ int programEval(void) {
         return 0;
       }
 
-      a = remf(a - lhs * PI / 180, PI * 2);
+      a = remf(a - lhs.f * PI / 180, PI * 2);
       break;
     }
   }
@@ -995,12 +932,12 @@ int compileExpr(Power base) {
 
   switch (token.type) {
   case TOKEN_NUM: {
-    int data;
-    if (!strParseInt(token.str, &data)) {
+    float data;
+    if (!strParseFloat(token.str, &data)) {
       return 0;
     }
 
-    if (!programPush(OP_NUM, data)) {
+    if (!programPush(OP_NUM, VALUE_FLOAT(data))) {
       return 0;
     }
   } break;
@@ -1034,7 +971,7 @@ int compileExpr(Power base) {
         return 0;
       }
 
-      if (!programPush(OP_CALL, index)) {
+      if (!programPush(OP_CALL, VALUE_INT(index))) {
         return 0;
       }
     } else if (new.type == TOKEN_SET) {
@@ -1053,13 +990,13 @@ int compileExpr(Power base) {
         if (!scopePush(&variables, token.str)) {
           return 0;
         }
-        variables.data[index] = insideFunction;
+        variables.data[index].i = insideFunction;
       }
 
-      if (variables.data[index]) {
-        return programPush(OP_SETL, index - variablesBase);
+      if (variables.data[index].i) {
+        return programPush(OP_SETL, VALUE_INT(index - variablesBase));
       } else {
-        return programPush(OP_SETG, index);
+        return programPush(OP_SETG, VALUE_INT(index));
       }
     } else {
       int index;
@@ -1068,12 +1005,12 @@ int compileExpr(Power base) {
         return 0;
       }
 
-      if (variables.data[index]) {
-        if (!programPush(OP_GETL, index - variablesBase)) {
+      if (variables.data[index].i) {
+        if (!programPush(OP_GETL, VALUE_INT(index - variablesBase))) {
           return 0;
         }
       } else {
-        if (!programPush(OP_GETG, index)) {
+        if (!programPush(OP_GETG, VALUE_INT(index))) {
           return 0;
         }
       }
@@ -1085,7 +1022,7 @@ int compileExpr(Power base) {
       return 0;
     }
 
-    if (!programPush(OP_NOT, 0)) {
+    if (!programPush(OP_NOT, VALUE_INT(0))) {
       return 0;
     }
     break;
@@ -1095,7 +1032,7 @@ int compileExpr(Power base) {
       return 0;
     }
 
-    if (!programPush(OP_NEG, 0)) {
+    if (!programPush(OP_NEG, VALUE_INT(0))) {
       return 0;
     }
     break;
@@ -1132,61 +1069,61 @@ int compileExpr(Power base) {
 
     switch (token.type) {
     case TOKEN_GT:
-      if (!programPush(OP_GT, 0)) {
+      if (!programPush(OP_GT, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_GE:
-      if (!programPush(OP_GE, 0)) {
+      if (!programPush(OP_GE, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_LT:
-      if (!programPush(OP_LT, 0)) {
+      if (!programPush(OP_LT, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_LE:
-      if (!programPush(OP_LE, 0)) {
+      if (!programPush(OP_LE, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_EQ:
-      if (!programPush(OP_EQ, 0)) {
+      if (!programPush(OP_EQ, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_NE:
-      if (!programPush(OP_NE, 0)) {
+      if (!programPush(OP_NE, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_ADD:
-      if (!programPush(OP_ADD, 0)) {
+      if (!programPush(OP_ADD, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_SUB:
-      if (!programPush(OP_SUB, 0)) {
+      if (!programPush(OP_SUB, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_MUL:
-      if (!programPush(OP_MUL, 0)) {
+      if (!programPush(OP_MUL, VALUE_INT(0))) {
         return 0;
       }
       break;
 
     case TOKEN_DIV:
-      if (!programPush(OP_DIV, 0)) {
+      if (!programPush(OP_DIV, VALUE_INT(0))) {
         return 0;
       }
       break;
@@ -1243,7 +1180,7 @@ int compileStmt(void) {
     }
 
     int thenAddr = programCount;
-    if (!programPush(OP_ELSE, 0)) {
+    if (!programPush(OP_ELSE, VALUE_INT(0))) {
       return 0;
     }
 
@@ -1263,19 +1200,19 @@ int compileStmt(void) {
       }
 
       int elseAddr = programCount;
-      if (!programPush(OP_GOTO, 0)) {
+      if (!programPush(OP_GOTO, VALUE_INT(0))) {
         return 0;
       }
 
-      programOps[thenAddr].data = programCount;
+      programOps[thenAddr].data.i = programCount;
 
       if (!compileStmt()) {
         return 0;
       }
 
-      programOps[elseAddr].data = programCount;
+      programOps[elseAddr].data.i = programCount;
     } else {
-      programOps[thenAddr].data = programCount;
+      programOps[thenAddr].data.i = programCount;
     }
   } break;
 
@@ -1292,7 +1229,7 @@ int compileStmt(void) {
     }
 
     int bodyAddr = programCount;
-    if (!programPush(OP_ELSE, 0)) {
+    if (!programPush(OP_ELSE, VALUE_INT(0))) {
       return 0;
     }
 
@@ -1300,11 +1237,11 @@ int compileStmt(void) {
       return 0;
     }
 
-    if (!programPush(OP_GOTO, condAddr)) {
+    if (!programPush(OP_GOTO, VALUE_INT(condAddr))) {
       return 0;
     }
 
-    programOps[bodyAddr].data = programCount;
+    programOps[bodyAddr].data.i = programCount;
   } break;
 
   case TOKEN_FN: {
@@ -1366,7 +1303,7 @@ int compileStmt(void) {
       if (!scopePush(&variables, token.str)) {
         return 0;
       }
-      variables.data[variables.count - 1] = insideFunction;
+      variables.data[variables.count - 1].i = insideFunction;
 
       functionsArity[functions.count - 1]++;
     }
@@ -1376,26 +1313,26 @@ int compileStmt(void) {
     }
 
     int bodyAddr = programCount;
-    if (!programPush(OP_GOTO, 0)) {
+    if (!programPush(OP_GOTO, VALUE_INT(0))) {
       return 0;
     }
-    functions.data[functions.count - 1] = programCount;
+    functions.data[functions.count - 1].i = programCount;
 
     if (!compileStmt()) {
       return 0;
     }
     functionsBody[functions.count - 1] = variablesMax - variablesBase;
 
-    if (!programPush(OP_NUM, 0)) {
+    if (!programPush(OP_NUM, VALUE_FLOAT(0))) {
       return 0;
     }
 
-    if (!programPush(OP_RETURN, functions.count - 1)) {
+    if (!programPush(OP_RETURN, VALUE_INT(functions.count - 1))) {
       return 0;
     }
 
     insideFunction = 0;
-    programOps[bodyAddr].data = programCount;
+    programOps[bodyAddr].data.i = programCount;
     variables.count = variablesBase;
   } break;
 
@@ -1411,7 +1348,7 @@ int compileStmt(void) {
       return 0;
     }
 
-    return programPush(OP_RETURN, functions.count - 1);
+    return programPush(OP_RETURN, VALUE_INT(functions.count - 1));
 
   case TOKEN_MOVE:
     lexer.buffer = 0;
@@ -1423,7 +1360,7 @@ int compileStmt(void) {
       return 0;
     }
 
-    return programPush(OP_MOVE, 0);
+    return programPush(OP_MOVE, VALUE_FLOAT(0));
 
   case TOKEN_ROTATE:
     lexer.buffer = 0;
@@ -1435,7 +1372,7 @@ int compileStmt(void) {
       return 0;
     }
 
-    return programPush(OP_ROTATE, 0);
+    return programPush(OP_ROTATE, VALUE_FLOAT(0));
 
   default: {
     if (!compileExpr(POWER_NIL)) {
@@ -1444,7 +1381,7 @@ int compileStmt(void) {
 
     OpType last = programOps[programCount - 1].type;
     if (last != OP_SETG && last != OP_SETL) {
-      return programPush(OP_DROP, 0);
+      return programPush(OP_DROP, VALUE_INT(0));
     }
   }
   }
