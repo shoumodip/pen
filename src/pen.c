@@ -155,10 +155,7 @@ typedef enum {
   TOKEN_ELSE,
   TOKEN_WHILE,
   TOKEN_FN,
-  TOKEN_RETURN,
-
-  TOKEN_MOVE,
-  TOKEN_ROTATE,
+  TOKEN_RETURN
 } TokenType;
 
 Str strFromTokenType(TokenType type) {
@@ -237,12 +234,6 @@ Str strFromTokenType(TokenType type) {
 
   case TOKEN_RETURN:
     return STR("'return'");
-
-  case TOKEN_MOVE:
-    return STR("'move'");
-
-  case TOKEN_ROTATE:
-    return STR("'rotate'");
   }
 }
 
@@ -439,10 +430,6 @@ int lexerNext(Lexer *l, Token *token) {
       token->type = TOKEN_FN;
     } else if (strEq(token->str, STR("return"))) {
       token->type = TOKEN_RETURN;
-    } else if (strEq(token->str, STR("move"))) {
-      token->type = TOKEN_MOVE;
-    } else if (strEq(token->str, STR("rotate"))) {
-      token->type = TOKEN_ROTATE;
     }
   }
 
@@ -514,43 +501,20 @@ typedef enum {
   OP_ELSE,
   OP_GOTO,
   OP_CALL,
+  OP_NATIVE,
   OP_RETURN,
 
   OP_DROP,
   OP_GETG,
   OP_SETG,
   OP_GETL,
-  OP_SETL,
-
-  OP_MOVE,
-  OP_ROTATE
+  OP_SETL
 } OpType;
 
 typedef struct {
   OpType type;
   Value data;
 } Op;
-
-// Canvas
-#define CANVAS_CAP 1024
-
-typedef struct {
-  int xs[CANVAS_CAP];
-  int ys[CANVAS_CAP];
-  int count;
-} Canvas;
-
-int canvasPush(Canvas *c, int x, int y) {
-  if (c->count >= CANVAS_CAP) {
-    LOG_ERROR(STR("Canvas overflow"));
-    return 0;
-  }
-
-  c->xs[c->count] = x;
-  c->ys[c->count] = y;
-  c->count++;
-  return 1;
-}
 
 // Stack
 #define STACK_CAP 1024
@@ -580,6 +544,8 @@ int stackPush(Stack *s, Value value) {
 }
 
 // Program
+typedef Value (*Native)(Value *);
+
 typedef struct {
   Str name;
   int body;
@@ -606,6 +572,9 @@ typedef struct {
   int variablesMax;
   int variablesBase;
   int variablesCount;
+
+  Native natives[PROGRAM_CAP];
+  int nativesCount;
 } Program;
 
 int programPushOp(Program *p, OpType type, Value data) {
@@ -620,7 +589,7 @@ int programPushOp(Program *p, OpType type, Value data) {
 
 int programPushFunction(Program *p, Str name, int arity, int start) {
   if (p->functionsCount >= PROGRAM_CAP) {
-    LOG_ERROR(STR("Program overflow"));
+    LOG_ERROR(STR("Functions overflow"));
     return 0;
   }
 
@@ -632,9 +601,19 @@ int programPushFunction(Program *p, Str name, int arity, int start) {
   return 1;
 }
 
+int programFindFunction(Program *p, Str name, int *out) {
+  for (int i = 0; i < p->functionsCount; i++) {
+    if (strEq(name, p->functions[i].name)) {
+      *out = i;
+      return 1;
+    }
+  }
+  return 0;
+}
+
 int programPushVariable(Program *p, Str name, Value data) {
   if (p->variablesCount >= PROGRAM_CAP) {
-    LOG_ERROR(STR("Program overflow"));
+    LOG_ERROR(STR("Variables overflow"));
     return 0;
   }
 
@@ -652,14 +631,14 @@ int programFindVariable(Program *p, Str name, int *out) {
   return 0;
 }
 
-int programFindFunction(Program *p, Str name, int *out) {
-  for (int i = 0; i < p->functionsCount; i++) {
-    if (strEq(name, p->functions[i].name)) {
-      *out = i;
-      return 1;
-    }
+int programPushNative(Program *p, Str name, int arity, Native native) {
+  if (p->nativesCount >= PROGRAM_CAP) {
+    LOG_ERROR(STR("Natives overflow"));
+    return 0;
   }
-  return 0;
+
+  p->natives[p->nativesCount++] = native;
+  return programPushFunction(p, name, arity, -p->nativesCount);
 }
 
 // Compiler
@@ -753,8 +732,14 @@ int compileExpr(Lexer *l, Program *p, Power base) {
         return 0;
       }
 
-      if (!programPushOp(p, OP_CALL, VALUE_INT(index))) {
-        return 0;
+      if (p->functions[index].start < 0) {
+        if (!programPushOp(p, OP_NATIVE, VALUE_INT(index))) {
+          return 0;
+        }
+      } else {
+        if (!programPushOp(p, OP_CALL, VALUE_INT(index))) {
+          return 0;
+        }
       }
     } else if (new.type == TOKEN_SET) {
       if (base != POWER_NIL) {
@@ -1124,30 +1109,6 @@ int compileStmt(Lexer *l, Program *p) {
 
     return programPushOp(p, OP_RETURN, VALUE_INT(p->functionsCount - 1));
 
-  case TOKEN_MOVE:
-    l->buffer = 0;
-    if (!lexerPeekExpect(l, TOKEN_LPAREN)) {
-      return 0;
-    }
-
-    if (!compileExpr(l, p, POWER_SET)) {
-      return 0;
-    }
-
-    return programPushOp(p, OP_MOVE, VALUE_FLOAT(0));
-
-  case TOKEN_ROTATE:
-    l->buffer = 0;
-    if (!lexerPeekExpect(l, TOKEN_LPAREN)) {
-      return 0;
-    }
-
-    if (!compileExpr(l, p, POWER_SET)) {
-      return 0;
-    }
-
-    return programPushOp(p, OP_ROTATE, VALUE_FLOAT(0));
-
   default: {
     if (!compileExpr(l, p, POWER_NIL)) {
       return 0;
@@ -1190,14 +1151,7 @@ int compileStmt(Lexer *l, Program *p) {
     }                                                                                              \
   } while (0)
 
-int programEval(Program *p, Stack *s, Canvas *c) {
-  float t = 0;
-  float x = 0;
-  float y = 0;
-
-  c->count = 0;
-  canvasPush(c, x, y);
-
+int programEval(Program *p, Stack *s) {
   int frame = 0;
   Value a;
   Value b;
@@ -1292,6 +1246,20 @@ int programEval(Program *p, Stack *s, Canvas *c) {
       i = f->start - 1;
     } break;
 
+    case OP_NATIVE: {
+      Function *f = &p->functions[op.data.i];
+
+      s->count -= f->arity;
+      if (s->count < 0) {
+        return 0;
+      }
+
+      Value result = p->natives[-f->start - 1](s->data + s->count);
+      if (!stackPush(s, result)) {
+        return 0;
+      }
+    } break;
+
     case OP_RETURN:
       if (!stackPop(s, &a)) {
         return 0;
@@ -1350,51 +1318,55 @@ int programEval(Program *p, Stack *s, Canvas *c) {
 
       s->data[frame + op.data.i] = a;
       break;
-
-    case OP_MOVE:
-      if (!stackPop(s, &a)) {
-        return 0;
-      }
-
-      x += a.f * cosf(t);
-      y += a.f * sinf(t);
-      if (!canvasPush(c, x, y)) {
-        return 0;
-      }
-      break;
-
-    case OP_ROTATE:
-      if (!stackPop(s, &a)) {
-        return 0;
-      }
-
-      t = remf(t - a.f * PI / 180, PI * 2);
-      break;
     }
   }
 
   return 1;
 }
 
-// Exports
-Lexer lexer;
-Stack stack;
-Canvas canvas;
-Program program;
+// Canvas
+#define CANVAS_CAP 1024
 
+int canvasCount;
+float canvasXs[CANVAS_CAP];
+float canvasYs[CANVAS_CAP];
+float canvasAngle;
+
+Value canvasMove(Value *arg) {
+  if (canvasCount >= CANVAS_CAP) {
+    LOG_ERROR(STR("Canvas overflow"));
+  } else {
+    canvasXs[canvasCount] = canvasXs[canvasCount - 1] + arg->f * cosf(canvasAngle);
+    canvasYs[canvasCount] = canvasYs[canvasCount - 1] + arg->f * sinf(canvasAngle);
+    canvasCount++;
+  }
+  return VALUE_FLOAT(0);
+}
+
+Value canvasRotate(Value *arg) {
+  canvasAngle = remf(canvasAngle - arg->f * PI / 180, PI * 2);
+  return VALUE_FLOAT(0);
+}
+
+// Exports
 void penRender(int w, int h) {
   w /= 2;
   h /= 2;
 
   platformClear();
-  for (int i = 1; i < canvas.count; i++) {
-    platformDrawLine(w + canvas.xs[i - 1], h + canvas.ys[i - 1], w + canvas.xs[i],
-                     h + canvas.ys[i]);
+  for (int i = 1; i < canvasCount; i++) {
+    platformDrawLine(w + (int)canvasXs[i - 1], h + (int)canvasYs[i - 1], w + (int)canvasXs[i],
+                     h + (int)canvasYs[i]);
   }
 }
 
+Lexer lexer;
+Stack stack;
+Program program;
+
 void penUpdate(char *data, int size) {
-  canvas.count = 0;
+  stack.count = 0;
+  canvasCount = 0;
   program.opsCount = 0;
 
   program.functionsCount = 0;
@@ -1405,6 +1377,8 @@ void penUpdate(char *data, int size) {
   program.variablesBase = 0;
 
   lexerInit(&lexer, (Str){.data = data, .count = size});
+  programPushNative(&program, STR("move"), 1, canvasMove);
+  programPushNative(&program, STR("rotate"), 1, canvasRotate);
 
   Token token;
   while (1) {
@@ -1421,5 +1395,7 @@ void penUpdate(char *data, int size) {
     }
   }
 
-  programEval(&program, &stack, &canvas);
+  canvasAngle = 0;
+  canvasCount = 1;
+  programEval(&program, &stack);
 }
