@@ -33,6 +33,7 @@ int main(int argc, char **argv) {
 
   SetConfigFlags(FLAG_WINDOW_RESIZABLE);
   InitWindow(800, 600, "Pen");
+  penInit();
 
   char *data = LoadFileText(file_path);
   if (data) {

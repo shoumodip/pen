@@ -7,6 +7,7 @@ void platformErrorPush(char *data, int count);
 void platformErrorEnd(void);
 void platformDrawLine(int x1, int y1, int x2, int y2);
 
+void penInit(void);
 void penRender(int w, int h);
 void penUpdate(char *data, int size);
 

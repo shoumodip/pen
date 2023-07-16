@@ -37,8 +37,9 @@ window.onload = async () => {
     }
   })
 
-  const { memory, penRender, penUpdate } = wasm.instance.exports
+  const { memory, penInit, penRender, penUpdate } = wasm.instance.exports
 
+  penInit()
   run.onclick = () => {
     const array = new Uint8Array(memory.buffer, 0, input.value.length)
     array.set(new TextEncoder().encode(input.value))
