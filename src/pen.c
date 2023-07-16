@@ -472,14 +472,6 @@ int lexerPeekExpect(Lexer *l, TokenType type) {
 }
 
 // Op
-typedef union {
-  int i;
-  float f;
-} Value;
-
-#define VALUE_INT(n) ((Value){.i = n})
-#define VALUE_FLOAT(n) ((Value){.f = n})
-
 typedef enum {
   OP_NUM,
 
@@ -513,18 +505,18 @@ typedef enum {
 
 typedef struct {
   OpType type;
-  Value data;
+  float data;
 } Op;
 
 // Stack
 #define STACK_CAP 1024
 
 typedef struct {
-  Value data[STACK_CAP];
+  float data[STACK_CAP];
   int count;
 } Stack;
 
-int stackPop(Stack *s, Value *out) {
+int stackPop(Stack *s, float *out) {
   if (!s->count) {
     return 0;
   }
@@ -533,7 +525,7 @@ int stackPop(Stack *s, Value *out) {
   return 1;
 }
 
-int stackPush(Stack *s, Value value) {
+int stackPush(Stack *s, float value) {
   if (s->count >= STACK_CAP) {
     LOG_ERROR(STR("Stack overflow"));
     return 0;
@@ -544,7 +536,7 @@ int stackPush(Stack *s, Value value) {
 }
 
 // Program
-typedef Value (*Native)(Value *);
+typedef float (*Native)(float *);
 
 typedef struct {
   Str name;
@@ -555,7 +547,7 @@ typedef struct {
 
 typedef struct {
   Str name;
-  Value data;
+  float data;
 } Variable;
 
 #define PROGRAM_CAP 1024
@@ -577,7 +569,7 @@ typedef struct {
   int nativesCount;
 } Program;
 
-int programPushOp(Program *p, OpType type, Value data) {
+int programPushOp(Program *p, OpType type, float data) {
   if (p->opsCount >= PROGRAM_CAP) {
     LOG_ERROR(STR("Program overflow"));
     return 0;
@@ -611,7 +603,7 @@ int programFindFunction(Program *p, Str name, int *out) {
   return 0;
 }
 
-int programPushVariable(Program *p, Str name, Value data) {
+int programPushVariable(Program *p, Str name, float data) {
   if (p->variablesCount >= PROGRAM_CAP) {
     LOG_ERROR(STR("Variables overflow"));
     return 0;
@@ -698,7 +690,7 @@ int compileExpr(Lexer *l, Program *p, Power base) {
       return 0;
     }
 
-    if (!programPushOp(p, OP_NUM, VALUE_FLOAT(data))) {
+    if (!programPushOp(p, OP_NUM, data)) {
       return 0;
     }
   } break;
@@ -733,11 +725,11 @@ int compileExpr(Lexer *l, Program *p, Power base) {
       }
 
       if (p->functions[index].start < 0) {
-        if (!programPushOp(p, OP_NATIVE, VALUE_INT(index))) {
+        if (!programPushOp(p, OP_NATIVE, index)) {
           return 0;
         }
       } else {
-        if (!programPushOp(p, OP_CALL, VALUE_INT(index))) {
+        if (!programPushOp(p, OP_CALL, index)) {
           return 0;
         }
       }
@@ -754,15 +746,15 @@ int compileExpr(Lexer *l, Program *p, Power base) {
 
       int index = p->variablesCount;
       if (!programFindVariable(p, token.str, &index)) {
-        if (!programPushVariable(p, token.str, VALUE_INT(p->functionsLocal))) {
+        if (!programPushVariable(p, token.str, p->functionsLocal)) {
           return 0;
         }
       }
 
-      if (p->variables[index].data.i) {
-        return programPushOp(p, OP_SETL, VALUE_INT(index - p->variablesBase));
+      if (p->variables[index].data) {
+        return programPushOp(p, OP_SETL, index - p->variablesBase);
       } else {
-        return programPushOp(p, OP_SETG, VALUE_INT(index));
+        return programPushOp(p, OP_SETG, index);
       }
     } else {
       int index;
@@ -771,12 +763,12 @@ int compileExpr(Lexer *l, Program *p, Power base) {
         return 0;
       }
 
-      if (p->variables[index].data.i) {
-        if (!programPushOp(p, OP_GETL, VALUE_INT(index - p->variablesBase))) {
+      if (p->variables[index].data) {
+        if (!programPushOp(p, OP_GETL, index - p->variablesBase)) {
           return 0;
         }
       } else {
-        if (!programPushOp(p, OP_GETG, VALUE_INT(index))) {
+        if (!programPushOp(p, OP_GETG, index)) {
           return 0;
         }
       }
@@ -788,7 +780,7 @@ int compileExpr(Lexer *l, Program *p, Power base) {
       return 0;
     }
 
-    if (!programPushOp(p, OP_NOT, VALUE_INT(0))) {
+    if (!programPushOp(p, OP_NOT, 0)) {
       return 0;
     }
     break;
@@ -798,7 +790,7 @@ int compileExpr(Lexer *l, Program *p, Power base) {
       return 0;
     }
 
-    if (!programPushOp(p, OP_NEG, VALUE_INT(0))) {
+    if (!programPushOp(p, OP_NEG, 0)) {
       return 0;
     }
     break;
@@ -835,61 +827,61 @@ int compileExpr(Lexer *l, Program *p, Power base) {
 
     switch (token.type) {
     case TOKEN_GT:
-      if (!programPushOp(p, OP_GT, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_GT, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_GE:
-      if (!programPushOp(p, OP_GE, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_GE, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_LT:
-      if (!programPushOp(p, OP_LT, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_LT, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_LE:
-      if (!programPushOp(p, OP_LE, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_LE, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_EQ:
-      if (!programPushOp(p, OP_EQ, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_EQ, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_NE:
-      if (!programPushOp(p, OP_NE, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_NE, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_ADD:
-      if (!programPushOp(p, OP_ADD, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_ADD, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_SUB:
-      if (!programPushOp(p, OP_SUB, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_SUB, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_MUL:
-      if (!programPushOp(p, OP_MUL, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_MUL, 0)) {
         return 0;
       }
       break;
 
     case TOKEN_DIV:
-      if (!programPushOp(p, OP_DIV, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_DIV, 0)) {
         return 0;
       }
       break;
@@ -946,7 +938,7 @@ int compileStmt(Lexer *l, Program *p) {
     }
 
     int thenAddr = p->opsCount;
-    if (!programPushOp(p, OP_ELSE, VALUE_INT(0))) {
+    if (!programPushOp(p, OP_ELSE, 0)) {
       return 0;
     }
 
@@ -966,19 +958,19 @@ int compileStmt(Lexer *l, Program *p) {
       }
 
       int elseAddr = p->opsCount;
-      if (!programPushOp(p, OP_GOTO, VALUE_INT(0))) {
+      if (!programPushOp(p, OP_GOTO, 0)) {
         return 0;
       }
 
-      p->ops[thenAddr].data.i = p->opsCount;
+      p->ops[thenAddr].data = p->opsCount;
 
       if (!compileStmt(l, p)) {
         return 0;
       }
 
-      p->ops[elseAddr].data.i = p->opsCount;
+      p->ops[elseAddr].data = p->opsCount;
     } else {
-      p->ops[thenAddr].data.i = p->opsCount;
+      p->ops[thenAddr].data = p->opsCount;
     }
   } break;
 
@@ -995,7 +987,7 @@ int compileStmt(Lexer *l, Program *p) {
     }
 
     int bodyAddr = p->opsCount;
-    if (!programPushOp(p, OP_ELSE, VALUE_INT(0))) {
+    if (!programPushOp(p, OP_ELSE, 0)) {
       return 0;
     }
 
@@ -1003,11 +995,11 @@ int compileStmt(Lexer *l, Program *p) {
       return 0;
     }
 
-    if (!programPushOp(p, OP_GOTO, VALUE_INT(condAddr))) {
+    if (!programPushOp(p, OP_GOTO, condAddr)) {
       return 0;
     }
 
-    p->ops[bodyAddr].data.i = p->opsCount;
+    p->ops[bodyAddr].data = p->opsCount;
   } break;
 
   case TOKEN_FN: {
@@ -1056,7 +1048,7 @@ int compileStmt(Lexer *l, Program *p) {
         return 0;
       }
 
-      if (!programPushVariable(p, token.str, VALUE_INT(p->functionsLocal))) {
+      if (!programPushVariable(p, token.str, p->functionsLocal)) {
         return 0;
       }
 
@@ -1068,7 +1060,7 @@ int compileStmt(Lexer *l, Program *p) {
     }
 
     int bodyAddr = p->opsCount;
-    if (!programPushOp(p, OP_GOTO, VALUE_INT(0))) {
+    if (!programPushOp(p, OP_GOTO, 0)) {
       return 0;
     }
 
@@ -1082,14 +1074,14 @@ int compileStmt(Lexer *l, Program *p) {
 
     p->functions[p->functionsCount - 1].body = p->variablesMax - p->variablesBase;
 
-    if (!programPushOp(p, OP_NUM, VALUE_FLOAT(0))) {
+    if (!programPushOp(p, OP_NUM, 0)) {
       return 0;
     }
 
-    if (!programPushOp(p, OP_RETURN, VALUE_INT(p->functionsCount - 1))) {
+    if (!programPushOp(p, OP_RETURN, p->functionsCount - 1)) {
       return 0;
     }
-    p->ops[bodyAddr].data.i = p->opsCount;
+    p->ops[bodyAddr].data = p->opsCount;
 
     p->functionsLocal = 0;
     p->variablesCount = p->variablesBase;
@@ -1107,7 +1099,7 @@ int compileStmt(Lexer *l, Program *p) {
       return 0;
     }
 
-    return programPushOp(p, OP_RETURN, VALUE_INT(p->functionsCount - 1));
+    return programPushOp(p, OP_RETURN, p->functionsCount - 1);
 
   default: {
     if (!compileExpr(l, p, POWER_NIL)) {
@@ -1116,7 +1108,7 @@ int compileStmt(Lexer *l, Program *p) {
 
     OpType last = p->ops[p->opsCount - 1].type;
     if (last != OP_SETG && last != OP_SETL) {
-      return programPushOp(p, OP_DROP, VALUE_INT(0));
+      return programPushOp(p, OP_DROP, 0);
     }
   }
   }
@@ -1131,7 +1123,7 @@ int compileStmt(Lexer *l, Program *p) {
       return 0;                                                                                    \
     }                                                                                              \
                                                                                                    \
-    if (!stackPush(s, VALUE_FLOAT(op(a.f)))) {                                                     \
+    if (!stackPush(s, op(a))) {                                                                    \
       return 0;                                                                                    \
     }                                                                                              \
   } while (0)
@@ -1146,15 +1138,15 @@ int compileStmt(Lexer *l, Program *p) {
       return 0;                                                                                    \
     }                                                                                              \
                                                                                                    \
-    if (!stackPush(s, VALUE_FLOAT(a.f op b.f))) {                                                  \
+    if (!stackPush(s, a op b)) {                                                                   \
       return 0;                                                                                    \
     }                                                                                              \
   } while (0)
 
 int programEval(Program *p, Stack *s) {
   int frame = 0;
-  Value a;
-  Value b;
+  float a;
+  float b;
   for (int i = 0; i < p->opsCount; i++) {
     Op op = p->ops[i];
     switch (op.type) {
@@ -1217,28 +1209,28 @@ int programEval(Program *p, Stack *s) {
         return 0;
       }
 
-      if (!a.f) {
-        i = op.data.i - 1;
+      if (!a) {
+        i = op.data - 1;
       }
       break;
 
     case OP_GOTO:
-      i = op.data.i - 1;
+      i = op.data - 1;
       break;
 
     case OP_CALL: {
-      Function *f = &p->functions[op.data.i];
+      Function *f = &p->functions[(int)op.data];
 
       s->count += f->body - f->arity;
       if (s->count > STACK_CAP) {
         return 0;
       }
 
-      if (!stackPush(s, VALUE_INT(i))) {
+      if (!stackPush(s, i)) {
         return 0;
       }
 
-      if (!stackPush(s, VALUE_INT(frame))) {
+      if (!stackPush(s, frame)) {
         return 0;
       }
 
@@ -1247,14 +1239,14 @@ int programEval(Program *p, Stack *s) {
     } break;
 
     case OP_NATIVE: {
-      Function *f = &p->functions[op.data.i];
+      Function *f = &p->functions[(int)op.data];
 
       s->count -= f->arity;
       if (s->count < 0) {
         return 0;
       }
 
-      Value result = p->natives[-f->start - 1](s->data + s->count);
+      float result = p->natives[-f->start - 1](s->data + s->count);
       if (!stackPush(s, result)) {
         return 0;
       }
@@ -1268,14 +1260,14 @@ int programEval(Program *p, Stack *s) {
       if (!stackPop(s, &b)) {
         return 0;
       }
-      frame = b.i;
+      frame = b;
 
       if (!stackPop(s, &b)) {
         return 0;
       }
-      i = b.i;
+      i = b;
 
-      s->count -= p->functions[op.data.i].body;
+      s->count -= p->functions[(int)op.data].body;
       if (s->count < 0) {
         return 0;
       }
@@ -1292,7 +1284,7 @@ int programEval(Program *p, Stack *s) {
       break;
 
     case OP_GETG:
-      if (!stackPush(s, p->variables[op.data.i].data)) {
+      if (!stackPush(s, p->variables[(int)op.data].data)) {
         return 0;
       }
       break;
@@ -1302,11 +1294,11 @@ int programEval(Program *p, Stack *s) {
         return 0;
       }
 
-      p->variables[op.data.i].data = a;
+      p->variables[(int)op.data].data = a;
       break;
 
     case OP_GETL:
-      if (!stackPush(s, s->data[frame + op.data.i])) {
+      if (!stackPush(s, s->data[frame + (int)op.data])) {
         return 0;
       }
       break;
@@ -1316,7 +1308,7 @@ int programEval(Program *p, Stack *s) {
         return 0;
       }
 
-      s->data[frame + op.data.i] = a;
+      s->data[frame + (int)op.data] = a;
       break;
     }
   }
@@ -1332,20 +1324,20 @@ float canvasXs[CANVAS_CAP];
 float canvasYs[CANVAS_CAP];
 float canvasAngle;
 
-Value canvasMove(Value *arg) {
+float canvasMove(float *arg) {
   if (canvasCount >= CANVAS_CAP) {
     LOG_ERROR(STR("Canvas overflow"));
   } else {
-    canvasXs[canvasCount] = canvasXs[canvasCount - 1] + arg->f * cosf(canvasAngle);
-    canvasYs[canvasCount] = canvasYs[canvasCount - 1] + arg->f * sinf(canvasAngle);
+    canvasXs[canvasCount] = canvasXs[canvasCount - 1] + *arg * cosf(canvasAngle);
+    canvasYs[canvasCount] = canvasYs[canvasCount - 1] + *arg * sinf(canvasAngle);
     canvasCount++;
   }
-  return VALUE_FLOAT(0);
+  return 0;
 }
 
-Value canvasRotate(Value *arg) {
-  canvasAngle = remf(canvasAngle - arg->f * PI / 180, PI * 2);
-  return VALUE_FLOAT(0);
+float canvasRotate(float *arg) {
+  canvasAngle = remf(canvasAngle - *arg * PI / 180, PI * 2);
+  return 0;
 }
 
 // Exports
