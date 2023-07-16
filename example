@@ -8,4 +8,8 @@ fn shape(n, l) {
   }
 }
 
-shape(6, 50)
+i = 3
+while i <= 8 {
+  shape(i, 50)
+  i = i + 1
+}
