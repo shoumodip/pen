@@ -41,7 +41,7 @@ typedef struct {
   int count;
 } Str;
 
-#define STR(data) ((Str){data, sizeof(data) - 1})
+#define STR(s) ((Str){.data = s, .count = sizeof(s) - 1})
 
 int strEq(Str a, Str b) {
   if (a.count != b.count) {
@@ -55,35 +55,6 @@ int strEq(Str a, Str b) {
   }
 
   return 1;
-}
-
-Str strDrop(Str s, int n) {
-  if (n >= s.count) {
-    return (Str){0};
-  }
-  return (Str){s.data + n, s.count - n};
-}
-
-Str strTrim(Str s, char ch) {
-  int n = 0;
-  while (n < s.count && s.data[n] == ch) {
-    n++;
-  }
-  return strDrop(s, n);
-}
-
-Str strSplit(Str *s, char ch) {
-  Str result = *s;
-
-  for (int i = 0; i < s->count; i++) {
-    if (s->data[i] == ch) {
-      result.count = i;
-      break;
-    }
-  }
-
-  *s = strDrop(*s, result.count + 1);
-  return result;
 }
 
 Str strFromInt(int n, char *buffer) {
@@ -105,7 +76,7 @@ Str strFromInt(int n, char *buffer) {
     buffer[size - 1] = '0';
   }
 
-  return (Str){buffer, size};
+  return (Str){.data = buffer, .count = size};
 }
 
 int strParseFloat(Str s, float *out) {
@@ -133,13 +104,26 @@ int strParseFloat(Str s, float *out) {
 }
 
 // Error
-void logError(Str *data, int count) {
+void logErrorImpl(Str *data, int count) {
   platformErrorStart();
   for (int i = 0; i < count; i++) {
     platformErrorPush(data[i].data, data[i].count);
   }
   platformErrorEnd();
 }
+
+#define LOG_ERROR(...)                                                                             \
+  do {                                                                                             \
+    Str list[] = {__VA_ARGS__};                                                                    \
+    logErrorImpl(list, sizeof(list) / sizeof(*list));                                              \
+  } while (0)
+
+#define LOG_ERROR_LINE(line, ...)                                                                  \
+  do {                                                                                             \
+    char buffer[20];                                                                               \
+    Str list[] = {__VA_ARGS__, STR(" in line "), strFromInt(line, buffer)};                        \
+    logErrorImpl(list, sizeof(list) / sizeof(*list));                                              \
+  } while (0)
 
 // Token
 typedef enum {
@@ -289,32 +273,31 @@ typedef struct {
   Token token;
 } Lexer;
 
-Lexer lexer;
-
-void lexerInit(Str str) {
-  lexer.row = 1;
-  lexer.str = str;
-  lexer.buffer = 0;
+void lexerInit(Lexer *l, Str str) {
+  l->row = 1;
+  l->str = str;
+  l->buffer = 0;
 }
 
-void lexerRead(void) {
-  if (*lexer.str.data == '\n') {
-    lexer.row++;
+void lexerRead(Lexer *l) {
+  if (*l->str.data == '\n') {
+    l->row++;
   }
-  lexer.str = strDrop(lexer.str, 1);
+  l->str.data++;
+  l->str.count--;
 }
 
-void lexerTrim(void) {
-  while (lexer.str.count) {
-    switch (*lexer.str.data) {
+void lexerTrim(Lexer *l) {
+  while (l->str.count) {
+    switch (*l->str.data) {
     case ' ':
     case '\n':
-      lexerRead();
+      lexerRead(l);
       break;
 
     case '#':
-      while (lexer.str.count && *lexer.str.data != '\n') {
-        lexerRead();
+      while (l->str.count && *l->str.data != '\n') {
+        lexerRead(l);
       }
       break;
 
@@ -324,132 +307,126 @@ void lexerTrim(void) {
   }
 }
 
-int lexerMatch(char ch) {
-  if (lexer.str.count && *lexer.str.data == ch) {
-    lexerRead();
+int lexerMatch(Lexer *l, char ch) {
+  if (l->str.count && *l->str.data == ch) {
+    lexerRead(l);
     return 1;
   }
 
   return 0;
 }
 
-int lexerNext(Token *token) {
-  if (lexer.buffer) {
-    lexer.buffer = 0;
-    *token = lexer.token;
+int lexerNext(Lexer *l, Token *token) {
+  if (l->buffer) {
+    l->buffer = 0;
+    *token = l->token;
     return 1;
   }
 
-  lexerTrim();
+  lexerTrim(l);
 
-  token->row = lexer.row;
-  token->str = lexer.str;
+  token->row = l->row;
+  token->str = l->str;
 
-  if (!lexer.str.count) {
+  if (!l->str.count) {
     token->type = TOKEN_EOF;
     return 1;
   }
 
-  switch (*lexer.str.data) {
+  switch (*l->str.data) {
   case '!':
-    lexerRead();
-    token->type = lexerMatch('=') ? TOKEN_NE : TOKEN_NOT;
+    lexerRead(l);
+    token->type = lexerMatch(l, '=') ? TOKEN_NE : TOKEN_NOT;
     break;
 
   case '>':
-    lexerRead();
-    token->type = lexerMatch('=') ? TOKEN_GE : TOKEN_GT;
+    lexerRead(l);
+    token->type = lexerMatch(l, '=') ? TOKEN_GE : TOKEN_GT;
     break;
 
   case '<':
-    lexerRead();
-    token->type = lexerMatch('=') ? TOKEN_LE : TOKEN_LT;
+    lexerRead(l);
+    token->type = lexerMatch(l, '=') ? TOKEN_LE : TOKEN_LT;
     break;
 
   case '+':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_ADD;
     break;
 
   case '-':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_SUB;
     break;
 
   case '*':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_MUL;
     break;
 
   case '/':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_DIV;
     break;
 
   case '=':
-    lexerRead();
-    token->type = lexerMatch('=') ? TOKEN_EQ : TOKEN_SET;
+    lexerRead(l);
+    token->type = lexerMatch(l, '=') ? TOKEN_EQ : TOKEN_SET;
     break;
 
   case ',':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_COMMA;
     break;
 
   case '(':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_LPAREN;
     break;
 
   case ')':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_RPAREN;
     break;
 
   case '{':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_LBRACE;
     break;
 
   case '}':
-    lexerRead();
+    lexerRead(l);
     token->type = TOKEN_RBRACE;
     break;
 
   default:
-    if (isdigit(*lexer.str.data)) {
-      while (lexer.str.count && isdigit(*lexer.str.data)) {
-        lexerRead();
+    if (isdigit(*l->str.data)) {
+      while (l->str.count && isdigit(*l->str.data)) {
+        lexerRead(l);
       }
 
-      if (lexer.str.count && *lexer.str.data == '.') {
-        lexerRead();
-        while (lexer.str.count && isdigit(*lexer.str.data)) {
-          lexerRead();
+      if (l->str.count && *l->str.data == '.') {
+        lexerRead(l);
+        while (l->str.count && isdigit(*l->str.data)) {
+          lexerRead(l);
         }
       }
 
       token->type = TOKEN_NUM;
-    } else if (isident(*lexer.str.data)) {
-      while (lexer.str.count && isident(*lexer.str.data)) {
-        lexerRead();
+    } else if (isident(*l->str.data)) {
+      while (l->str.count && isident(*l->str.data)) {
+        lexerRead(l);
       }
 
       token->type = TOKEN_IDENT;
     } else {
-      char buffer[20];
-      Str errors[] = {
-        STR("Invalid character '"),
-        (Str){token->str.data, 1},
-        STR("' in line "),
-        strFromInt(token->row, buffer),
-      };
-      logError(errors, sizeof(errors) / sizeof(*errors));
+      LOG_ERROR_LINE(token->row, STR("Invalid character '"),
+                     (Str){.data = token->str.data, .count = 1}, STR("'"));
       return 0;
     }
   }
 
-  token->str.count -= lexer.str.count;
+  token->str.count -= l->str.count;
 
   if (token->type == TOKEN_IDENT) {
     if (strEq(token->str, STR("if"))) {
@@ -472,43 +449,38 @@ int lexerNext(Token *token) {
   return 1;
 }
 
-int lexerPeek(Token *token) {
-  if (!lexer.buffer) {
-    if (!lexerNext(&lexer.token)) {
+int lexerPeek(Lexer *l, Token *token) {
+  if (!l->buffer) {
+    if (!lexerNext(l, &l->token)) {
       return 0;
     }
-    lexer.buffer = 1;
+    l->buffer = 1;
   }
 
-  *token = lexer.token;
+  *token = l->token;
   return 1;
 }
 
-int lexerExpect(Token *token, TokenType type) {
-  if (!lexerNext(token)) {
+int lexerNextExpect(Lexer *l, Token *token, TokenType type) {
+  if (!lexerNext(l, token)) {
     return 0;
   }
 
   if (token->type != type) {
-    char buffer[20];
-    Str errors[] = {
-      STR("Expected "), strFromTokenType(type),
-      STR(", found "),  strFromTokenType(token->type),
-      STR(" in line "), strFromInt(token->row, buffer),
-    };
-    logError(errors, sizeof(errors) / sizeof(*errors));
+    LOG_ERROR_LINE(token->row, STR("Expected "), strFromTokenType(type), STR(", found "),
+                   strFromTokenType(token->type));
     return 0;
   }
 
   return 1;
 }
 
-int lexerExpectPeek(TokenType type) {
-  if (!lexerExpect(&lexer.token, type)) {
+int lexerPeekExpect(Lexer *l, TokenType type) {
+  if (!lexerNextExpect(l, &l->token, type)) {
     return 0;
   }
 
-  lexer.buffer = 1;
+  l->buffer = 1;
   return 1;
 }
 
@@ -561,70 +533,118 @@ typedef struct {
 
 // Canvas
 #define CANVAS_CAP 1024
-int canvasXs[CANVAS_CAP];
-int canvasYs[CANVAS_CAP];
-int canvasCount;
 
-int canvasPush(int x, int y) {
-  if (canvasCount >= CANVAS_CAP) {
-    Str errors[] = {STR("Canvas overflow")};
-    logError(errors, sizeof(errors) / sizeof(*errors));
+typedef struct {
+  int xs[CANVAS_CAP];
+  int ys[CANVAS_CAP];
+  int count;
+} Canvas;
+
+int canvasPush(Canvas *c, int x, int y) {
+  if (c->count >= CANVAS_CAP) {
+    LOG_ERROR(STR("Canvas overflow"));
     return 0;
   }
 
-  canvasXs[canvasCount] = x;
-  canvasYs[canvasCount] = y;
-  canvasCount++;
+  c->xs[c->count] = x;
+  c->ys[c->count] = y;
+  c->count++;
   return 1;
 }
 
 // Stack
 #define STACK_CAP 1024
-Value stackData[STACK_CAP];
-int stackCount;
 
-int stackPop(Value *out) {
-  if (!stackCount) {
-    return 0;
-  }
-
-  *out = stackData[--stackCount];
-  return 1;
-}
-
-int stackPush(Value value) {
-  if (stackCount >= STACK_CAP) {
-    Str errors[] = {STR("Stack overflow")};
-    logError(errors, sizeof(errors) / sizeof(*errors));
-    return 0;
-  }
-
-  stackData[stackCount++] = value;
-  return 1;
-}
-
-// Scope
-#define SCOPE_CAP 1024
 typedef struct {
-  Value data[SCOPE_CAP];
-  Str names[SCOPE_CAP];
+  Value data[STACK_CAP];
   int count;
-} Scope;
+} Stack;
 
-int scopePush(Scope *s, Str name) {
-  if (s->count >= SCOPE_CAP) {
-    Str errors[] = {STR("Scope overflow")};
-    logError(errors, sizeof(errors) / sizeof(*errors));
+int stackPop(Stack *s, Value *out) {
+  if (!s->count) {
     return 0;
   }
 
-  s->names[s->count++] = name;
+  *out = s->data[--s->count];
   return 1;
 }
 
-int scopeFind(Scope *s, Str name, int *out) {
-  for (int i = 0; i < s->count; i++) {
-    if (strEq(name, s->names[i])) {
+int stackPush(Stack *s, Value value) {
+  if (s->count >= STACK_CAP) {
+    LOG_ERROR(STR("Stack overflow"));
+    return 0;
+  }
+
+  s->data[s->count++] = value;
+  return 1;
+}
+
+// Program
+typedef struct {
+  Str name;
+  int body;
+  int arity;
+  int start;
+} Function;
+
+typedef struct {
+  Str name;
+  Value data;
+} Variable;
+
+#define PROGRAM_CAP 1024
+
+typedef struct {
+  Op ops[PROGRAM_CAP];
+  int opsCount;
+
+  Function functions[PROGRAM_CAP];
+  int functionsCount;
+  int functionsLocal;
+
+  Variable variables[PROGRAM_CAP];
+  int variablesMax;
+  int variablesBase;
+  int variablesCount;
+} Program;
+
+int programPushOp(Program *p, OpType type, Value data) {
+  if (p->opsCount >= PROGRAM_CAP) {
+    LOG_ERROR(STR("Program overflow"));
+    return 0;
+  }
+
+  p->ops[p->opsCount++] = (Op){.type = type, .data = data};
+  return 1;
+}
+
+int programPushFunction(Program *p, Str name, int arity, int start) {
+  if (p->functionsCount >= PROGRAM_CAP) {
+    LOG_ERROR(STR("Program overflow"));
+    return 0;
+  }
+
+  p->functions[p->functionsCount++] = (Function){
+    .name = name,
+    .arity = arity,
+    .start = start,
+  };
+  return 1;
+}
+
+int programPushVariable(Program *p, Str name, Value data) {
+  if (p->variablesCount >= PROGRAM_CAP) {
+    LOG_ERROR(STR("Program overflow"));
+    return 0;
+  }
+
+  p->variables[p->variablesCount++] = (Variable){.name = name, .data = data};
+  return 1;
+}
+
+int programFindVariable(Program *p, Str name, int *out) {
+  for (int i = 0; i < p->variablesCount; i++) {
+    if (strEq(name, p->variables[i].name)) {
       *out = i;
       return 1;
     }
@@ -632,74 +652,560 @@ int scopeFind(Scope *s, Str name, int *out) {
   return 0;
 }
 
-int functionsBody[SCOPE_CAP];
-int functionsArity[SCOPE_CAP];
-int insideFunction;
-Scope functions;
+int programFindFunction(Program *p, Str name, int *out) {
+  for (int i = 0; i < p->functionsCount; i++) {
+    if (strEq(name, p->functions[i].name)) {
+      *out = i;
+      return 1;
+    }
+  }
+  return 0;
+}
 
-int variablesMax;
-int variablesBase;
-Scope variables;
+// Compiler
+typedef enum {
+  POWER_NIL,
+  POWER_SET,
+  POWER_CMP,
+  POWER_ADD,
+  POWER_MUL,
+  POWER_PRE
+} Power;
 
-// Program
-#define PROGRAM_CAP 1024
-Op programOps[PROGRAM_CAP];
-int programCount;
+Power powerFromTokenType(TokenType type) {
+  switch (type) {
+  case TOKEN_GT:
+  case TOKEN_GE:
+  case TOKEN_LT:
+  case TOKEN_LE:
+  case TOKEN_EQ:
+  case TOKEN_NE:
+    return POWER_CMP;
 
-int programPush(OpType type, Value data) {
-  if (programCount >= PROGRAM_CAP) {
-    Str errors[] = {STR("Program overflow")};
-    logError(errors, sizeof(errors) / sizeof(*errors));
+  case TOKEN_ADD:
+  case TOKEN_SUB:
+    return POWER_ADD;
+
+  case TOKEN_MUL:
+  case TOKEN_DIV:
+    return POWER_MUL;
+
+  case TOKEN_SET:
+    return POWER_SET;
+
+  default:
+    return POWER_NIL;
+  }
+}
+
+void errorUnexpected(Token token) {
+  LOG_ERROR_LINE(token.row, STR("Unexpected "), strFromTokenType(token.type));
+}
+
+void errorUndefined(Token token, Str label) {
+  LOG_ERROR_LINE(token.row, STR("Undefined "), label, STR(" '"), token.str, STR("'"));
+}
+
+int compileExpr(Lexer *l, Program *p, Power base) {
+  Token token;
+  if (!lexerNext(l, &token)) {
     return 0;
   }
 
-  programOps[programCount++] = (Op){type, data};
+  switch (token.type) {
+  case TOKEN_NUM: {
+    float data;
+    if (!strParseFloat(token.str, &data)) {
+      return 0;
+    }
+
+    if (!programPushOp(p, OP_NUM, VALUE_FLOAT(data))) {
+      return 0;
+    }
+  } break;
+
+  case TOKEN_IDENT: {
+    Token new;
+    if (!lexerPeek(l, &new)) {
+      return 0;
+    }
+
+    if (new.type == TOKEN_LPAREN) {
+      l->buffer = 0;
+
+      int index;
+      if (!programFindFunction(p, token.str, &index)) {
+        errorUndefined(token, STR("function"));
+        return 0;
+      }
+
+      for (int i = 0; i < p->functions[index].arity; i++) {
+        if (i && !lexerNextExpect(l, &token, TOKEN_COMMA)) {
+          return 0;
+        }
+
+        if (!compileExpr(l, p, POWER_SET)) {
+          return 0;
+        }
+      }
+
+      if (!lexerNextExpect(l, &new, TOKEN_RPAREN)) {
+        return 0;
+      }
+
+      if (!programPushOp(p, OP_CALL, VALUE_INT(index))) {
+        return 0;
+      }
+    } else if (new.type == TOKEN_SET) {
+      if (base != POWER_NIL) {
+        errorUnexpected(new);
+        return 0;
+      }
+      l->buffer = 0;
+
+      if (!compileExpr(l, p, POWER_SET)) {
+        return 0;
+      }
+
+      int index = p->variablesCount;
+      if (!programFindVariable(p, token.str, &index)) {
+        if (!programPushVariable(p, token.str, VALUE_INT(p->functionsLocal))) {
+          return 0;
+        }
+      }
+
+      if (p->variables[index].data.i) {
+        return programPushOp(p, OP_SETL, VALUE_INT(index - p->variablesBase));
+      } else {
+        return programPushOp(p, OP_SETG, VALUE_INT(index));
+      }
+    } else {
+      int index;
+      if (!programFindVariable(p, token.str, &index)) {
+        errorUndefined(token, STR("variable"));
+        return 0;
+      }
+
+      if (p->variables[index].data.i) {
+        if (!programPushOp(p, OP_GETL, VALUE_INT(index - p->variablesBase))) {
+          return 0;
+        }
+      } else {
+        if (!programPushOp(p, OP_GETG, VALUE_INT(index))) {
+          return 0;
+        }
+      }
+    }
+  } break;
+
+  case TOKEN_NOT:
+    if (!compileExpr(l, p, POWER_PRE)) {
+      return 0;
+    }
+
+    if (!programPushOp(p, OP_NOT, VALUE_INT(0))) {
+      return 0;
+    }
+    break;
+
+  case TOKEN_SUB:
+    if (!compileExpr(l, p, POWER_PRE)) {
+      return 0;
+    }
+
+    if (!programPushOp(p, OP_NEG, VALUE_INT(0))) {
+      return 0;
+    }
+    break;
+
+  case TOKEN_LPAREN:
+    if (!compileExpr(l, p, POWER_SET)) {
+      return 0;
+    }
+
+    if (!lexerNextExpect(l, &token, TOKEN_RPAREN)) {
+      return 0;
+    }
+    break;
+
+  default:
+    errorUnexpected(token);
+    return 0;
+  }
+
+  while (1) {
+    if (!lexerPeek(l, &token)) {
+      return 0;
+    }
+
+    Power left = powerFromTokenType(token.type);
+    if (left <= base) {
+      break;
+    }
+    l->buffer = 0;
+
+    if (!compileExpr(l, p, left)) {
+      return 0;
+    }
+
+    switch (token.type) {
+    case TOKEN_GT:
+      if (!programPushOp(p, OP_GT, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_GE:
+      if (!programPushOp(p, OP_GE, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_LT:
+      if (!programPushOp(p, OP_LT, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_LE:
+      if (!programPushOp(p, OP_LE, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_EQ:
+      if (!programPushOp(p, OP_EQ, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_NE:
+      if (!programPushOp(p, OP_NE, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_ADD:
+      if (!programPushOp(p, OP_ADD, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_SUB:
+      if (!programPushOp(p, OP_SUB, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_MUL:
+      if (!programPushOp(p, OP_MUL, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    case TOKEN_DIV:
+      if (!programPushOp(p, OP_DIV, VALUE_INT(0))) {
+        return 0;
+      }
+      break;
+
+    default:
+      break;
+    }
+  }
+
   return 1;
 }
 
+int compileStmt(Lexer *l, Program *p) {
+  Token token;
+  if (!lexerPeek(l, &token)) {
+    return 0;
+  }
+
+  switch (token.type) {
+  case TOKEN_LBRACE: {
+    int scopeStart = p->variablesCount;
+
+    l->buffer = 0;
+    while (1) {
+      if (!lexerPeek(l, &token)) {
+        return 0;
+      }
+
+      if (token.type == TOKEN_RBRACE) {
+        break;
+      }
+
+      if (!compileStmt(l, p)) {
+        return 0;
+      }
+    }
+    l->buffer = 0;
+
+    if (p->variablesMax < p->variablesCount) {
+      p->variablesMax = p->variablesCount;
+    }
+
+    p->variablesCount = scopeStart;
+  } break;
+
+  case TOKEN_IF: {
+    l->buffer = 0;
+    if (!compileExpr(l, p, POWER_SET)) {
+      return 0;
+    }
+
+    if (!lexerPeekExpect(l, TOKEN_LBRACE)) {
+      return 0;
+    }
+
+    int thenAddr = p->opsCount;
+    if (!programPushOp(p, OP_ELSE, VALUE_INT(0))) {
+      return 0;
+    }
+
+    if (!compileStmt(l, p)) {
+      return 0;
+    }
+
+    if (!lexerPeek(l, &token)) {
+      return 0;
+    }
+
+    if (token.type == TOKEN_ELSE) {
+      l->buffer = 0;
+
+      if (!lexerPeekExpect(l, TOKEN_LBRACE)) {
+        return 0;
+      }
+
+      int elseAddr = p->opsCount;
+      if (!programPushOp(p, OP_GOTO, VALUE_INT(0))) {
+        return 0;
+      }
+
+      p->ops[thenAddr].data.i = p->opsCount;
+
+      if (!compileStmt(l, p)) {
+        return 0;
+      }
+
+      p->ops[elseAddr].data.i = p->opsCount;
+    } else {
+      p->ops[thenAddr].data.i = p->opsCount;
+    }
+  } break;
+
+  case TOKEN_WHILE: {
+    l->buffer = 0;
+
+    int condAddr = p->opsCount;
+    if (!compileExpr(l, p, POWER_SET)) {
+      return 0;
+    }
+
+    if (!lexerPeekExpect(l, TOKEN_LBRACE)) {
+      return 0;
+    }
+
+    int bodyAddr = p->opsCount;
+    if (!programPushOp(p, OP_ELSE, VALUE_INT(0))) {
+      return 0;
+    }
+
+    if (!compileStmt(l, p)) {
+      return 0;
+    }
+
+    if (!programPushOp(p, OP_GOTO, VALUE_INT(condAddr))) {
+      return 0;
+    }
+
+    p->ops[bodyAddr].data.i = p->opsCount;
+  } break;
+
+  case TOKEN_FN: {
+    l->buffer = 0;
+
+    if (p->functionsLocal) {
+      errorUnexpected(token);
+      return 0;
+    }
+    p->functionsLocal = 1;
+
+    p->variablesMax = p->variablesCount;
+    p->variablesBase = p->variablesCount;
+
+    if (!lexerNextExpect(l, &token, TOKEN_IDENT)) {
+      return 0;
+    }
+    Str name = token.str;
+
+    int index;
+    if (programFindFunction(p, token.str, &index)) {
+      LOG_ERROR_LINE(token.row, STR("Redefinition of function '"), token.str, STR("'"));
+      return 0;
+    }
+
+    if (!lexerNextExpect(l, &token, TOKEN_LPAREN)) {
+      return 0;
+    }
+
+    int arity = 0;
+    while (1) {
+      if (!lexerPeek(l, &token)) {
+        return 0;
+      }
+
+      if (token.type == TOKEN_RPAREN) {
+        l->buffer = 0;
+        break;
+      }
+
+      if (arity && !lexerNextExpect(l, &token, TOKEN_COMMA)) {
+        return 0;
+      }
+
+      if (!lexerNextExpect(l, &token, TOKEN_IDENT)) {
+        return 0;
+      }
+
+      if (!programPushVariable(p, token.str, VALUE_INT(p->functionsLocal))) {
+        return 0;
+      }
+
+      arity++;
+    }
+
+    if (!lexerPeekExpect(l, TOKEN_LBRACE)) {
+      return 0;
+    }
+
+    int bodyAddr = p->opsCount;
+    if (!programPushOp(p, OP_GOTO, VALUE_INT(0))) {
+      return 0;
+    }
+
+    if (!programPushFunction(p, name, arity, p->opsCount)) {
+      return 0;
+    }
+
+    if (!compileStmt(l, p)) {
+      return 0;
+    }
+
+    p->functions[p->functionsCount - 1].body = p->variablesMax - p->variablesBase;
+
+    if (!programPushOp(p, OP_NUM, VALUE_FLOAT(0))) {
+      return 0;
+    }
+
+    if (!programPushOp(p, OP_RETURN, VALUE_INT(p->functionsCount - 1))) {
+      return 0;
+    }
+    p->ops[bodyAddr].data.i = p->opsCount;
+
+    p->functionsLocal = 0;
+    p->variablesCount = p->variablesBase;
+  } break;
+
+  case TOKEN_RETURN:
+    l->buffer = 0;
+
+    if (!p->functionsLocal) {
+      errorUnexpected(token);
+      return 0;
+    }
+
+    if (!compileExpr(l, p, POWER_SET)) {
+      return 0;
+    }
+
+    return programPushOp(p, OP_RETURN, VALUE_INT(p->functionsCount - 1));
+
+  case TOKEN_MOVE:
+    l->buffer = 0;
+    if (!lexerPeekExpect(l, TOKEN_LPAREN)) {
+      return 0;
+    }
+
+    if (!compileExpr(l, p, POWER_SET)) {
+      return 0;
+    }
+
+    return programPushOp(p, OP_MOVE, VALUE_FLOAT(0));
+
+  case TOKEN_ROTATE:
+    l->buffer = 0;
+    if (!lexerPeekExpect(l, TOKEN_LPAREN)) {
+      return 0;
+    }
+
+    if (!compileExpr(l, p, POWER_SET)) {
+      return 0;
+    }
+
+    return programPushOp(p, OP_ROTATE, VALUE_FLOAT(0));
+
+  default: {
+    if (!compileExpr(l, p, POWER_NIL)) {
+      return 0;
+    }
+
+    OpType last = p->ops[p->opsCount - 1].type;
+    if (last != OP_SETG && last != OP_SETL) {
+      return programPushOp(p, OP_DROP, VALUE_INT(0));
+    }
+  }
+  }
+
+  return 1;
+}
+
+// Evaluator
 #define UNARY_OP(op)                                                                               \
   do {                                                                                             \
-    if (!stackPop(&lhs)) {                                                                         \
+    if (!stackPop(s, &a)) {                                                                        \
       return 0;                                                                                    \
     }                                                                                              \
                                                                                                    \
-    if (!stackPush(VALUE_FLOAT(op(lhs.f)))) {                                                      \
+    if (!stackPush(s, VALUE_FLOAT(op(a.f)))) {                                                     \
       return 0;                                                                                    \
     }                                                                                              \
   } while (0)
 
 #define BINARY_OP(op)                                                                              \
   do {                                                                                             \
-    if (!stackPop(&rhs)) {                                                                         \
+    if (!stackPop(s, &b)) {                                                                        \
       return 0;                                                                                    \
     }                                                                                              \
                                                                                                    \
-    if (!stackPop(&lhs)) {                                                                         \
+    if (!stackPop(s, &a)) {                                                                        \
       return 0;                                                                                    \
     }                                                                                              \
                                                                                                    \
-    if (!stackPush(VALUE_FLOAT(lhs.f op rhs.f))) {                                                 \
+    if (!stackPush(s, VALUE_FLOAT(a.f op b.f))) {                                                  \
       return 0;                                                                                    \
     }                                                                                              \
   } while (0)
 
-int programEval(void) {
-  Value lhs;
-  Value rhs;
-  int rbp = 0;
-
-  float a = 0;
+int programEval(Program *p, Stack *s, Canvas *c) {
+  float t = 0;
   float x = 0;
   float y = 0;
 
-  canvasCount = 0;
-  canvasPush(x, y);
+  c->count = 0;
+  canvasPush(c, x, y);
 
-  for (int i = 0; i < programCount; i++) {
-    Op op = programOps[i];
+  int frame = 0;
+  Value a;
+  Value b;
+  for (int i = 0; i < p->opsCount; i++) {
+    Op op = p->ops[i];
     switch (op.type) {
     case OP_NUM:
-      if (!stackPush(op.data)) {
+      if (!stackPush(s, op.data)) {
         return 0;
       }
       break;
@@ -753,11 +1259,11 @@ int programEval(void) {
       break;
 
     case OP_ELSE:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
 
-      if (!lhs.f) {
+      if (!a.f) {
         i = op.data.i - 1;
       }
       break;
@@ -766,656 +1272,143 @@ int programEval(void) {
       i = op.data.i - 1;
       break;
 
-    case OP_CALL:
-      stackCount += functionsBody[op.data.i] - functionsArity[op.data.i];
-      if (stackCount > STACK_CAP) {
+    case OP_CALL: {
+      Function *f = &p->functions[op.data.i];
+
+      s->count += f->body - f->arity;
+      if (s->count > STACK_CAP) {
         return 0;
       }
 
-      if (!stackPush(VALUE_INT(i))) {
+      if (!stackPush(s, VALUE_INT(i))) {
         return 0;
       }
 
-      if (!stackPush(VALUE_INT(rbp))) {
+      if (!stackPush(s, VALUE_INT(frame))) {
         return 0;
       }
 
-      rbp = stackCount - functionsBody[op.data.i] - 2;
-      i = functions.data[op.data.i].i - 1;
-      break;
+      frame = s->count - f->body - 2;
+      i = f->start - 1;
+    } break;
 
     case OP_RETURN:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
 
-      if (!stackPop(&rhs)) {
+      if (!stackPop(s, &b)) {
         return 0;
       }
-      rbp = rhs.i;
+      frame = b.i;
 
-      if (!stackPop(&rhs)) {
+      if (!stackPop(s, &b)) {
         return 0;
       }
-      i = rhs.i;
+      i = b.i;
 
-      stackCount -= functionsBody[op.data.i];
-      if (stackCount < 0) {
+      s->count -= p->functions[op.data.i].body;
+      if (s->count < 0) {
         return 0;
       }
 
-      if (!stackPush(lhs)) {
+      if (!stackPush(s, a)) {
         return 0;
       }
       break;
 
     case OP_DROP:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
       break;
 
     case OP_GETG:
-      if (!stackPush(variables.data[op.data.i])) {
+      if (!stackPush(s, p->variables[op.data.i].data)) {
         return 0;
       }
       break;
 
     case OP_SETG:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
 
-      variables.data[op.data.i] = lhs;
+      p->variables[op.data.i].data = a;
       break;
 
     case OP_GETL:
-      if (!stackPush(stackData[rbp + op.data.i])) {
+      if (!stackPush(s, s->data[frame + op.data.i])) {
         return 0;
       }
       break;
 
     case OP_SETL:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
 
-      stackData[rbp + op.data.i] = lhs;
+      s->data[frame + op.data.i] = a;
       break;
 
     case OP_MOVE:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
 
-      x += lhs.f * cosf(a);
-      y += lhs.f * sinf(a);
-      if (!canvasPush(x, y)) {
+      x += a.f * cosf(t);
+      y += a.f * sinf(t);
+      if (!canvasPush(c, x, y)) {
         return 0;
       }
       break;
 
     case OP_ROTATE:
-      if (!stackPop(&lhs)) {
+      if (!stackPop(s, &a)) {
         return 0;
       }
 
-      a = remf(a - lhs.f * PI / 180, PI * 2);
+      t = remf(t - a.f * PI / 180, PI * 2);
       break;
     }
-  }
-
-  return 1;
-}
-
-// Compiler
-typedef enum {
-  POWER_NIL,
-  POWER_SET,
-  POWER_CMP,
-  POWER_ADD,
-  POWER_MUL,
-  POWER_PRE
-} Power;
-
-Power powerFromTokenType(TokenType type) {
-  switch (type) {
-  case TOKEN_GT:
-  case TOKEN_GE:
-  case TOKEN_LT:
-  case TOKEN_LE:
-  case TOKEN_EQ:
-  case TOKEN_NE:
-    return POWER_CMP;
-
-  case TOKEN_ADD:
-  case TOKEN_SUB:
-    return POWER_ADD;
-
-  case TOKEN_MUL:
-  case TOKEN_DIV:
-    return POWER_MUL;
-
-  case TOKEN_SET:
-    return POWER_SET;
-
-  default:
-    return POWER_NIL;
-  }
-}
-
-void errorUnexpected(Token token) {
-  char buffer[20];
-  Str errors[] = {
-    STR("Unexpected "),
-    strFromTokenType(token.type),
-    STR(" in line "),
-    strFromInt(token.row, buffer),
-  };
-  logError(errors, sizeof(errors) / sizeof(*errors));
-}
-
-void errorUndefined(Token token, char *label) {
-  char buffer[20];
-  Str errors[] = {
-    STR("Undefined "), strFromTokenType(token.type),  STR(" '"), token.str,
-    STR("' in line "), strFromInt(token.row, buffer),
-  };
-  logError(errors, sizeof(errors) / sizeof(*errors));
-}
-
-int compileExpr(Power base) {
-  Token token;
-  if (!lexerNext(&token)) {
-    return 0;
-  }
-
-  switch (token.type) {
-  case TOKEN_NUM: {
-    float data;
-    if (!strParseFloat(token.str, &data)) {
-      return 0;
-    }
-
-    if (!programPush(OP_NUM, VALUE_FLOAT(data))) {
-      return 0;
-    }
-  } break;
-
-  case TOKEN_IDENT: {
-    Token new;
-    if (!lexerPeek(&new)) {
-      return 0;
-    }
-
-    if (new.type == TOKEN_LPAREN) {
-      lexer.buffer = 0;
-
-      int index;
-      if (!scopeFind(&functions, token.str, &index)) {
-        errorUndefined(token, "function");
-        return 0;
-      }
-
-      for (int i = 0; i < functionsArity[index]; i++) {
-        if (i && !lexerExpect(&token, TOKEN_COMMA)) {
-          return 0;
-        }
-
-        if (!compileExpr(POWER_SET)) {
-          return 0;
-        }
-      }
-
-      if (!lexerExpect(&new, TOKEN_RPAREN)) {
-        return 0;
-      }
-
-      if (!programPush(OP_CALL, VALUE_INT(index))) {
-        return 0;
-      }
-    } else if (new.type == TOKEN_SET) {
-      if (base != POWER_NIL) {
-        errorUnexpected(new);
-        return 0;
-      }
-      lexer.buffer = 0;
-
-      if (!compileExpr(POWER_SET)) {
-        return 0;
-      }
-
-      int index = variables.count;
-      if (!scopeFind(&variables, token.str, &index)) {
-        if (!scopePush(&variables, token.str)) {
-          return 0;
-        }
-        variables.data[index].i = insideFunction;
-      }
-
-      if (variables.data[index].i) {
-        return programPush(OP_SETL, VALUE_INT(index - variablesBase));
-      } else {
-        return programPush(OP_SETG, VALUE_INT(index));
-      }
-    } else {
-      int index;
-      if (!scopeFind(&variables, token.str, &index)) {
-        errorUndefined(token, "variable");
-        return 0;
-      }
-
-      if (variables.data[index].i) {
-        if (!programPush(OP_GETL, VALUE_INT(index - variablesBase))) {
-          return 0;
-        }
-      } else {
-        if (!programPush(OP_GETG, VALUE_INT(index))) {
-          return 0;
-        }
-      }
-    }
-  } break;
-
-  case TOKEN_NOT:
-    if (!compileExpr(POWER_PRE)) {
-      return 0;
-    }
-
-    if (!programPush(OP_NOT, VALUE_INT(0))) {
-      return 0;
-    }
-    break;
-
-  case TOKEN_SUB:
-    if (!compileExpr(POWER_PRE)) {
-      return 0;
-    }
-
-    if (!programPush(OP_NEG, VALUE_INT(0))) {
-      return 0;
-    }
-    break;
-
-  case TOKEN_LPAREN:
-    if (!compileExpr(POWER_SET)) {
-      return 0;
-    }
-
-    if (!lexerExpect(&token, TOKEN_RPAREN)) {
-      return 0;
-    }
-    break;
-
-  default:
-    errorUnexpected(token);
-    return 0;
-  }
-
-  while (1) {
-    if (!lexerPeek(&token)) {
-      return 0;
-    }
-
-    Power left = powerFromTokenType(token.type);
-    if (left <= base) {
-      break;
-    }
-    lexer.buffer = 0;
-
-    if (!compileExpr(left)) {
-      return 0;
-    }
-
-    switch (token.type) {
-    case TOKEN_GT:
-      if (!programPush(OP_GT, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_GE:
-      if (!programPush(OP_GE, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_LT:
-      if (!programPush(OP_LT, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_LE:
-      if (!programPush(OP_LE, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_EQ:
-      if (!programPush(OP_EQ, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_NE:
-      if (!programPush(OP_NE, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_ADD:
-      if (!programPush(OP_ADD, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_SUB:
-      if (!programPush(OP_SUB, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_MUL:
-      if (!programPush(OP_MUL, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    case TOKEN_DIV:
-      if (!programPush(OP_DIV, VALUE_INT(0))) {
-        return 0;
-      }
-      break;
-
-    default:
-      break;
-    }
-  }
-
-  return 1;
-}
-
-int compileStmt(void) {
-  Token token;
-  if (!lexerPeek(&token)) {
-    return 0;
-  }
-
-  switch (token.type) {
-  case TOKEN_LBRACE: {
-    int scopeStart = variables.count;
-
-    lexer.buffer = 0;
-    while (1) {
-      if (!lexerPeek(&token)) {
-        return 0;
-      }
-
-      if (token.type == TOKEN_RBRACE) {
-        break;
-      }
-
-      if (!compileStmt()) {
-        return 0;
-      }
-    }
-    lexer.buffer = 0;
-
-    if (variablesMax < variables.count) {
-      variablesMax = variables.count;
-    }
-
-    variables.count = scopeStart;
-  } break;
-
-  case TOKEN_IF: {
-    lexer.buffer = 0;
-    if (!compileExpr(POWER_SET)) {
-      return 0;
-    }
-
-    if (!lexerExpectPeek(TOKEN_LBRACE)) {
-      return 0;
-    }
-
-    int thenAddr = programCount;
-    if (!programPush(OP_ELSE, VALUE_INT(0))) {
-      return 0;
-    }
-
-    if (!compileStmt()) {
-      return 0;
-    }
-
-    if (!lexerPeek(&token)) {
-      return 0;
-    }
-
-    if (token.type == TOKEN_ELSE) {
-      lexer.buffer = 0;
-
-      if (!lexerExpectPeek(TOKEN_LBRACE)) {
-        return 0;
-      }
-
-      int elseAddr = programCount;
-      if (!programPush(OP_GOTO, VALUE_INT(0))) {
-        return 0;
-      }
-
-      programOps[thenAddr].data.i = programCount;
-
-      if (!compileStmt()) {
-        return 0;
-      }
-
-      programOps[elseAddr].data.i = programCount;
-    } else {
-      programOps[thenAddr].data.i = programCount;
-    }
-  } break;
-
-  case TOKEN_WHILE: {
-    lexer.buffer = 0;
-
-    int condAddr = programCount;
-    if (!compileExpr(POWER_SET)) {
-      return 0;
-    }
-
-    if (!lexerExpectPeek(TOKEN_LBRACE)) {
-      return 0;
-    }
-
-    int bodyAddr = programCount;
-    if (!programPush(OP_ELSE, VALUE_INT(0))) {
-      return 0;
-    }
-
-    if (!compileStmt()) {
-      return 0;
-    }
-
-    if (!programPush(OP_GOTO, VALUE_INT(condAddr))) {
-      return 0;
-    }
-
-    programOps[bodyAddr].data.i = programCount;
-  } break;
-
-  case TOKEN_FN: {
-    lexer.buffer = 0;
-
-    if (insideFunction) {
-      errorUnexpected(token);
-      return 0;
-    }
-    insideFunction = 1;
-
-    variablesMax = variables.count;
-    variablesBase = variables.count;
-
-    if (!lexerExpect(&token, TOKEN_IDENT)) {
-      return 0;
-    }
-
-    int index;
-    if (scopeFind(&functions, token.str, &index)) {
-      char buffer[20];
-      Str errors[] = {
-        STR("Redefinition of function '"),
-        token.str,
-        STR("' in line "),
-        strFromInt(token.row, buffer),
-      };
-      logError(errors, sizeof(errors) / sizeof(*errors));
-      return 0;
-    }
-
-    if (!scopePush(&functions, token.str)) {
-      return 0;
-    }
-
-    if (!lexerExpect(&token, TOKEN_LPAREN)) {
-      return 0;
-    }
-
-    functionsArity[functions.count - 1] = 0;
-    while (1) {
-      if (!lexerPeek(&token)) {
-        return 0;
-      }
-
-      if (token.type == TOKEN_RPAREN) {
-        lexer.buffer = 0;
-        break;
-      }
-
-      if (functionsArity[functions.count - 1] && !lexerExpect(&token, TOKEN_COMMA)) {
-        return 0;
-      }
-
-      if (!lexerExpect(&token, TOKEN_IDENT)) {
-        return 0;
-      }
-
-      if (!scopePush(&variables, token.str)) {
-        return 0;
-      }
-      variables.data[variables.count - 1].i = insideFunction;
-
-      functionsArity[functions.count - 1]++;
-    }
-
-    if (!lexerExpectPeek(TOKEN_LBRACE)) {
-      return 0;
-    }
-
-    int bodyAddr = programCount;
-    if (!programPush(OP_GOTO, VALUE_INT(0))) {
-      return 0;
-    }
-    functions.data[functions.count - 1].i = programCount;
-
-    if (!compileStmt()) {
-      return 0;
-    }
-    functionsBody[functions.count - 1] = variablesMax - variablesBase;
-
-    if (!programPush(OP_NUM, VALUE_FLOAT(0))) {
-      return 0;
-    }
-
-    if (!programPush(OP_RETURN, VALUE_INT(functions.count - 1))) {
-      return 0;
-    }
-
-    insideFunction = 0;
-    programOps[bodyAddr].data.i = programCount;
-    variables.count = variablesBase;
-  } break;
-
-  case TOKEN_RETURN:
-    lexer.buffer = 0;
-
-    if (!insideFunction) {
-      errorUnexpected(token);
-      return 0;
-    }
-
-    if (!compileExpr(POWER_SET)) {
-      return 0;
-    }
-
-    return programPush(OP_RETURN, VALUE_INT(functions.count - 1));
-
-  case TOKEN_MOVE:
-    lexer.buffer = 0;
-    if (!lexerExpectPeek(TOKEN_LPAREN)) {
-      return 0;
-    }
-
-    if (!compileExpr(POWER_SET)) {
-      return 0;
-    }
-
-    return programPush(OP_MOVE, VALUE_FLOAT(0));
-
-  case TOKEN_ROTATE:
-    lexer.buffer = 0;
-    if (!lexerExpectPeek(TOKEN_LPAREN)) {
-      return 0;
-    }
-
-    if (!compileExpr(POWER_SET)) {
-      return 0;
-    }
-
-    return programPush(OP_ROTATE, VALUE_FLOAT(0));
-
-  default: {
-    if (!compileExpr(POWER_NIL)) {
-      return 0;
-    }
-
-    OpType last = programOps[programCount - 1].type;
-    if (last != OP_SETG && last != OP_SETL) {
-      return programPush(OP_DROP, VALUE_INT(0));
-    }
-  }
   }
 
   return 1;
 }
 
 // Exports
+Lexer lexer;
+Stack stack;
+Canvas canvas;
+Program program;
+
 void penRender(int w, int h) {
   w /= 2;
   h /= 2;
 
   platformClear();
-  for (int i = 1; i < canvasCount; i++) {
-    platformDrawLine(w + canvasXs[i - 1], h + canvasYs[i - 1], w + canvasXs[i], h + canvasYs[i]);
+  for (int i = 1; i < canvas.count; i++) {
+    platformDrawLine(w + canvas.xs[i - 1], h + canvas.ys[i - 1], w + canvas.xs[i],
+                     h + canvas.ys[i]);
   }
 }
 
 void penUpdate(char *data, int size) {
-  canvasCount = 0;
-  programCount = 0;
+  canvas.count = 0;
+  program.opsCount = 0;
 
-  functions.count = 0;
-  variables.count = 0;
+  program.functionsCount = 0;
+  program.variablesCount = 0;
 
-  insideFunction = 0;
-  variablesMax = 0;
-  variablesBase = 0;
+  program.functionsLocal = 0;
+  program.variablesMax = 0;
+  program.variablesBase = 0;
 
-  lexerInit((Str){data, size});
+  lexerInit(&lexer, (Str){.data = data, .count = size});
 
   Token token;
   while (1) {
-    if (!lexerPeek(&token)) {
+    if (!lexerPeek(&lexer, &token)) {
       return;
     }
 
@@ -1423,10 +1416,10 @@ void penUpdate(char *data, int size) {
       break;
     }
 
-    if (!compileStmt()) {
+    if (!compileStmt(&lexer, &program)) {
       return;
     }
   }
 
-  programEval();
+  programEval(&program, &stack, &canvas);
 }
