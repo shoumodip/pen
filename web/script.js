@@ -49,6 +49,18 @@ window.onload = async () => {
 
     penUpdate(array.byteOffset, array.length)
     penRender(app.width, app.height)
+
+    if (error.value) {
+      const line = Number(error.value.slice(error.value.lastIndexOf(" ")))
+
+      let index = 0
+      for (let i = 1; i < line; i++) {
+        index = input.value.indexOf("\n", index + 1)
+      }
+
+      input.focus()
+      input.setSelectionRange(index, input.value.indexOf("\n", index + 1))
+    }
   }
 
   input.value = await fetch("example").then((e) => e.text())
